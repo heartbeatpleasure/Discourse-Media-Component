@@ -263,8 +263,7 @@
       <div class="hb-media-library-grid">
         {{#each this.items as |item|}}
           <div class="hb-media-library-card" role="button" tabindex="0" {{on "click" (fn this.openPreview item)}}>
-            <div class="hb-media-library-thumb {{if (or (not (eq item.status "ready")) item._thumbFailed (and (eq item.status "ready") (not item._thumbSrc))) "hb-media-library-thumb--placeholder"}}"
-              {{did-insert (fn this.registerThumb item)}}>
+            <div class="hb-media-library-thumb {{if (or (not (eq item.status "ready")) item._thumbFailed (and (eq item.status "ready") (not item._thumbSrc))) "hb-media-library-thumb--placeholder"}}">
               {{#if (and (eq item.status "ready") (not item._thumbFailed))}}
                 {{#if item._thumbSrc}}
                   <img
@@ -324,7 +323,6 @@
                       </button>
                     {{/if}}
 
-                    {{!-- Delete disabled while queued/processing --}}
                     <button
                       class="btn btn-small btn-danger"
                       type="button"
