@@ -104,6 +104,10 @@ export default class MediaGalleryPage extends Component {
   _thumbRetryById = new Map();
   _thumbFailures = new Set();
 
+  // Some endpoints may 500 when receiving a tags parameter. Track per endpoint
+  // to avoid repeated failing requests (and noisy console/network errors).
+  _tagsBrokenByEndpoint = new Map();
+
   constructor() {
     super(...arguments);
 
@@ -220,11 +224,92 @@ export default class MediaGalleryPage extends Component {
   }
 
   // -----------------------
+  // Client-side filtering helpers
+  // -----------------------
+  _normalizeTags(tags) {
+    return (tags || []).map((t) => String(t || "").trim().toLowerCase()).filter(Boolean);
+  }
+
+  _itemHasAllTags(item, selectedTagsLower) {
+    if (!selectedTagsLower?.length) return true;
+    const itemTags = this._normalizeTags(item?.tags || []);
+    if (!itemTags.length) return false;
+    return selectedTagsLower.every((t) => itemTags.includes(t));
+  }
+
+  _applyClientFilters(media) {
+    let out = [...(media || [])];
+
+    // Server-side filters *should* handle these, but we apply them again client-side
+    // so "my uploads" remains consistent even if the endpoint ignores some params.
+    if (this.mediaType) {
+      out = out.filter((m) => String(m?.media_type || "") === String(this.mediaType));
+    }
+
+    if (this.gender) {
+      out = out.filter((m) => String(m?.gender || "") === String(this.gender));
+    }
+
+    if (this.isMine && this.status) {
+      out = out.filter((m) => String(m?.status || "") === String(this.status));
+    }
+
+    const selectedTagsLower = this._normalizeTags(uniqStrings(this.tagsSelected || []));
+    if (selectedTagsLower.length) {
+      out = out.filter((m) => this._itemHasAllTags(m, selectedTagsLower));
+    }
+
+    // Text query is intentionally client-side only (current page)
+    if (this.q?.trim()) {
+      const q = this.q.trim().toLowerCase();
+      out = out.filter((m) => {
+        const t = (m.title || "").toLowerCase();
+        const d = (m.description || "").toLowerCase();
+        return t.includes(q) || d.includes(q);
+      });
+    }
+
+    return out;
+  }
+
+  async _fetchWithTagFallback(endpoint, data, tags) {
+    // Some backends crash (500) when tags are passed as an array parameter.
+    // We first try sending tags as a single string (comma-separated). If that
+    // still fails with 500, we retry without tags and fall back to client-side
+    // filtering (within the returned page) to avoid stale/incorrect UI.
+    const baseData = { ...data };
+
+    const tagsString = (tags || []).length ? (tags.length === 1 ? tags[0] : tags.join(",")) : null;
+
+    const endpointKey = String(endpoint || "");
+
+    if (!tagsString || this._tagsBrokenByEndpoint.get(endpointKey)) {
+      return await ajax(endpoint, { type: "GET", data: baseData });
+    }
+
+    try {
+      return await ajax(endpoint, { type: "GET", data: { ...baseData, tags: tagsString } });
+    } catch (e) {
+      const status = e?.jqXHR?.status;
+      if (status === 500) {
+        // Retry without tags to avoid breaking search; we will filter client-side.
+        this._tagsBrokenByEndpoint.set(endpointKey, true);
+        this.noticeMessage =
+          "Tag filtering caused a server error. The server will be queried without tags; results are filtered client-side.";
+        return await ajax(endpoint, { type: "GET", data: baseData });
+      }
+      throw e;
+    }
+  }
+
+  // -----------------------
   // Tabs / paging
   // -----------------------
   @action
   switchTab(tab) {
     if (this.activeTab === tab) return;
+    this.noticeMessage = null;
+    this.errorMessage = null;
     this.activeTab = tab;
     this.page = 1;
     this.refresh();
@@ -233,6 +318,8 @@ export default class MediaGalleryPage extends Component {
   @action
   goPrev() {
     if (!this.hasPrev) return;
+    this.noticeMessage = null;
+    this.errorMessage = null;
     this.page = this.page - 1;
     this.refresh();
   }
@@ -240,6 +327,8 @@ export default class MediaGalleryPage extends Component {
   @action
   goNext() {
     if (!this.hasNext) return;
+    this.noticeMessage = null;
+    this.errorMessage = null;
     this.page = this.page + 1;
     this.refresh();
   }
@@ -260,6 +349,8 @@ export default class MediaGalleryPage extends Component {
 
   @action
   clearFilters() {
+    this.noticeMessage = null;
+    this.errorMessage = null;
     this.q = "";
     this.mediaType = "";
     this.gender = "";
@@ -273,6 +364,8 @@ export default class MediaGalleryPage extends Component {
 
   @action
   applyFilters() {
+    this.noticeMessage = null;
+    this.errorMessage = null;
     this.page = 1;
     this.refresh();
   }
@@ -747,6 +840,8 @@ export default class MediaGalleryPage extends Component {
       this.loading = true;
     }
     this.errorMessage = null;
+    // Notice messages (e.g. upload/delete/retry) are cleared explicitly by user
+    // actions (Search/Reset/Tab/Paging) so silent polling doesn't wipe them.
 
     try {
       const data = {
@@ -757,24 +852,17 @@ export default class MediaGalleryPage extends Component {
       const tags = uniqStrings(this.tagsSelected || []);
       if (this.mediaType) data.media_type = this.mediaType;
       if (this.gender) data.gender = this.gender;
-      if (tags.length) data.tags = tags;
 
       const endpoint = this.isMine ? "/media/my" : "/media";
       if (this.isMine && this.status) data.status = this.status;
 
-      const res = await ajax(endpoint, { type: "GET", data });
+      const res = await this._fetchWithTagFallback(endpoint, data, tags);
 
       let media = res?.media_items || [];
       const total = res?.total ?? media.length;
 
-      if (this.q?.trim()) {
-        const q = this.q.trim().toLowerCase();
-        media = media.filter((m) => {
-          const t = (m.title || "").toLowerCase();
-          const d = (m.description || "").toLowerCase();
-          return t.includes(q) || d.includes(q);
-        });
-      }
+      // Ensure consistent filtering behavior across tabs/endpoints
+      media = this._applyClientFilters(media);
 
       // Apply thumb failure state that survives refresh()
       this._applyThumbFailureState(media);
