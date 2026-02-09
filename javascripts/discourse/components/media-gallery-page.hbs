@@ -267,7 +267,7 @@
               class="hb-media-library-thumb
                 {{if (or (not (eq item.status "ready")) item._thumbFailed (and (eq item.status "ready") (not item._thumbLoaded))) "hb-media-library-thumb--placeholder"}}
                 {{if item._thumbLoaded "hb-media-library-thumb--loaded"}}"
-              data-thumb-fix="v4"
+              data-thumb-fix="v5"
             >
               {{#if (and (eq item.status "ready") (not item._thumbFailed))}}
                 {{#if item._thumbSrc}}
@@ -276,6 +276,7 @@
                     src={{item._thumbSrc}}
                     decoding="async"
                     {{did-insert (fn this.onThumbInsert item)}}
+                    {{did-update (fn this.onThumbInsert item) item._thumbSrc}}
                     {{on "load" (fn this.onThumbLoad item)}}
                     {{on "error" (fn this.onThumbError item)}}
                   />

@@ -632,6 +632,15 @@ export default class MediaGalleryPage extends Component {
     this._thumbQueue.push(item);
   }
 
+  // When the list refreshes while images are still loading, the `item` object
+  // captured by template modifiers/events can become stale (no longer present
+  // in `this.items`). Always resolve by public_id before mutating state.
+  _resolveCurrentItem(item) {
+    const id = item?.public_id;
+    if (!id) return null;
+    return (this.items || []).find((x) => x?.public_id === id) || null;
+  }
+
   _pumpThumbQueue() {
     while (this._thumbInFlight < THUMB_MAX_CONCURRENCY && this._thumbQueue.length > 0) {
       const item = this._thumbQueue.shift();
@@ -655,42 +664,59 @@ export default class MediaGalleryPage extends Component {
   // leaving the UI stuck in "Loading thumbnail…".
   @action
   onThumbInsert(item, element) {
-    if (!item || item._thumbLoaded || item._thumbFailed) return;
+    if (this._destroyed) return;
+    const current = this._resolveCurrentItem(item);
+    if (!current) return;
+    if (current._thumbLoaded || current._thumbFailed) return;
 
     const img = element;
     if (!img) return;
 
-    // If the image is already loaded from cache, `load` may never fire for us.
-    if (img.complete && img.naturalWidth > 0) {
-      const wasInFlight = !!item._thumbInFlight;
-      item._thumbLoaded = true;
-      item._thumbInFlight = false;
-      item._thumbQueued = false;
+    const tryMark = () => {
+      if (this._destroyed) return;
+      const it = this._resolveCurrentItem(current);
+      if (!it || it._thumbLoaded || it._thumbFailed) return;
 
-      if (wasInFlight) {
-        this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+      // Cached-image race: `load` can fire before Ember attaches listeners.
+      // Also, some browsers update `complete/naturalWidth` on the next tick.
+      if (img.complete && img.naturalWidth > 0) {
+        const wasInFlight = !!it._thumbInFlight;
+        it._thumbLoaded = true;
+        it._thumbInFlight = false;
+        it._thumbQueued = false;
+        if (wasInFlight) {
+          this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+        }
+        this.items = [...this.items];
+        this._pumpThumbQueue();
+        return;
       }
 
-      this.items = [...this.items];
-      this._pumpThumbQueue();
-      return;
-    }
+      // Broken resource (HTML/429/etc.)
+      if (img.complete && img.naturalWidth === 0) {
+        this.onThumbError(it);
+      }
+    };
 
-    // If it's "complete" but broken (naturalWidth = 0), kick the retry path.
-    if (img.complete && img.naturalWidth === 0) {
-      this.onThumbError(item);
-    }
+    // Immediate + next ticks to cover cache/attachment races
+    tryMark();
+    Promise.resolve().then(tryMark);
+    setTimeout(tryMark, 0);
+    requestAnimationFrame(tryMark);
+    setTimeout(tryMark, 200);
   }
 
   // Called by <img onload>
   @action
   onThumbLoad(item) {
-    if (!item || item._thumbFailed) return;
-    const wasInFlight = !!item._thumbInFlight;
+    if (this._destroyed) return;
+    const it = this._resolveCurrentItem(item);
+    if (!it || it._thumbFailed) return;
 
-    item._thumbLoaded = true;
-    item._thumbInFlight = false;
-    item._thumbQueued = false;
+    const wasInFlight = !!it._thumbInFlight;
+    it._thumbLoaded = true;
+    it._thumbInFlight = false;
+    it._thumbQueued = false;
 
     if (wasInFlight) {
       this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
@@ -702,20 +728,23 @@ export default class MediaGalleryPage extends Component {
   // Called by <img onerror>
   @action
   onThumbError(item, ev) {
-    if (!item || item._thumbFailed) return;
-    const wasInFlight = !!item._thumbInFlight;
+    if (this._destroyed) return;
+    const it = this._resolveCurrentItem(item);
+    if (!it || it._thumbFailed) return;
 
-    const attempt = parseInt(item._thumbRetries || 0, 10) || 0;
+    const wasInFlight = !!it._thumbInFlight;
+
+    const attempt = parseInt(it._thumbRetries || 0, 10) || 0;
     const nextAttempt = attempt + 1;
-    item._thumbRetries = nextAttempt;
+    it._thumbRetries = nextAttempt;
 
     // Always clear src so the broken image never flashes
-    item._thumbSrc = null;
-    item._thumbLoaded = false;
+    it._thumbSrc = null;
+    it._thumbLoaded = false;
 
     // Release slot immediately (lets other thumbs continue) and re-queue after delay
-    item._thumbInFlight = false;
-    item._thumbQueued = false;
+    it._thumbInFlight = false;
+    it._thumbQueued = false;
     if (wasInFlight) {
       this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
     }
@@ -726,18 +755,19 @@ export default class MediaGalleryPage extends Component {
       setTimeout(() => {
         // Component might have been destroyed / items changed
         if (this._destroyed) return;
-        if (!this.items || !this.items.includes(item)) return;
-        if (item._thumbFailed || item._thumbLoaded) return;
-        if (item.status !== "ready" || !item.thumbnail_url) return;
+        const current = this._resolveCurrentItem(it);
+        if (!current) return;
+        if (current._thumbFailed || current._thumbLoaded) return;
+        if (current.status !== "ready" || !current.thumbnail_url) return;
 
-        this._enqueueThumbItem(item);
+        this._enqueueThumbItem(current);
         this._pumpThumbQueue();
       }, delay);
       return;
     }
 
     // Give up
-    item._thumbFailed = true;
+    it._thumbFailed = true;
     this.items = [...this.items];
 
     try {
