@@ -263,22 +263,20 @@
       <div class="hb-media-library-grid">
         {{#each this.items as |item|}}
           <div class="hb-media-library-card" role="button" tabindex="0" {{on "click" (fn this.openPreview item)}}>
-            <div class="hb-media-library-thumb {{if (or (not (eq item.status "ready")) item._thumbFailed (and (eq item.status "ready") (not item._thumbLoaded))) "hb-media-library-thumb--placeholder"}} {{if item._thumbLoaded "hb-media-library-thumb--loaded"}}">
+            <div class="hb-media-library-thumb {{if (or (not (eq item.status "ready")) item._thumbFailed (and (eq item.status "ready") (not item._thumbSrc))) "hb-media-library-thumb--placeholder"}}">
               {{#if (and (eq item.status "ready") (not item._thumbFailed))}}
                 {{#if item._thumbSrc}}
                   <img
                     alt=""
                     src={{item._thumbSrc}}
                     decoding="async"
-        {{did-insert (fn this.onThumbInsert item)}}
+                    {{did-insert (fn this.onThumbInsert item)}}
                     {{on "load" (fn this.onThumbLoad item)}}
                     {{on "error" (fn this.onThumbError item)}}
                   />
-                {{/if}}
-
-                {{#unless item._thumbLoaded}}
+                {{else}}
                   <span class="hb-media-library-thumb-loading">Loading thumbnail…</span>
-                {{/unless}}
+                {{/if}}
               {{else}}
                 {{#if item.status}}
                   {{item.status}}
