@@ -34,6 +34,10 @@ function uniqStrings(arr) {
   return out;
 }
 
+function isProcessingStatus(status) {
+  return status === "queued" || status === "processing";
+}
+
 export default class MediaGalleryPage extends Component {
   // Tabs
   @tracked activeTab = "all"; // all | mine
@@ -171,7 +175,6 @@ export default class MediaGalleryPage extends Component {
     const el = e?.target;
     if (!el?.closest) return;
 
-    // Close when clicking outside any of the multi-select containers
     const inside = el.closest("[data-hb-ms]");
     if (!inside) {
       this.filterTagsOpen = false;
@@ -192,10 +195,9 @@ export default class MediaGalleryPage extends Component {
   schedulePollingIfNeeded() {
     this.stopPolling();
 
-    // Only poll on "My uploads", and only if there are in-flight items.
     if (!this.isMine) return;
 
-    const hasInFlight = (this.items || []).some((i) => i?.status === "queued" || i?.status === "processing");
+    const hasInFlight = (this.items || []).some((i) => isProcessingStatus(i?.status));
     if (!hasInFlight) return;
 
     this._pollTimer = setTimeout(() => {
@@ -305,14 +307,12 @@ export default class MediaGalleryPage extends Component {
     const candidate = (this.filterTagsQuery || "").trim();
     if (!candidate) return;
 
-    // If allowedTags exists, only allow exact match additions via Enter
     if (this.allowedTags.length) {
       const match = this.allowedTags.find((x) => String(x).toLowerCase() === candidate.toLowerCase());
       if (match) this.addFilterTag(match);
       return;
     }
 
-    // Free entry mode
     this.addFilterTag(candidate);
   }
 
@@ -427,7 +427,6 @@ export default class MediaGalleryPage extends Component {
     this.uploadBusy = true;
 
     try {
-      // 1) Upload raw file to Discourse
       const fd = new FormData();
       fd.append("type", "composer");
       fd.append("synchronous", "true");
@@ -445,7 +444,6 @@ export default class MediaGalleryPage extends Component {
         throw new Error(I18n.t("media_gallery.errors.upload_failed"));
       }
 
-      // 2) Register in media gallery plugin
       const payload = {
         upload_id: uploadId,
         title: this.uploadTitle.trim(),
@@ -462,12 +460,10 @@ export default class MediaGalleryPage extends Component {
       this.noticeMessage = I18n.t("media_gallery.uploading_notice");
       this.resetUploadForm();
 
-      // Switch to "My uploads" and refresh.
       this.activeTab = "mine";
       this.page = 1;
       await this.refresh();
 
-      // Ensure polling starts immediately after creating an item.
       this.schedulePollingIfNeeded();
     } catch (e) {
       const status = e?.jqXHR?.status;
@@ -492,6 +488,12 @@ export default class MediaGalleryPage extends Component {
     ev?.stopPropagation?.();
     if (!this.isMine) return;
     if (!item?.public_id) return;
+
+    // UX improvement #1: do not allow delete while processing
+    if (isProcessingStatus(item.status)) {
+      this.noticeMessage = "You can delete this item after processing is complete.";
+      return;
+    }
 
     this.errorMessage = null;
     this.noticeMessage = null;
@@ -520,7 +522,6 @@ export default class MediaGalleryPage extends Component {
     try {
       await ajax(`/media/${this.deleteItem.public_id}`, { type: "DELETE" });
 
-      // If the preview is open for the same item, close it.
       if (this.previewOpen && this.previewItem?.public_id === this.deleteItem.public_id) {
         this.closePreview();
       }
@@ -531,6 +532,12 @@ export default class MediaGalleryPage extends Component {
       this.deleteBusy = false;
 
       await this.refresh();
+
+      // UX improvement #2: if current page is empty after delete, go back one page
+      if ((this.items?.length || 0) === 0 && this.page > 1) {
+        this.page = this.page - 1;
+        await this.refresh();
+      }
     } catch (e) {
       this.deleteBusy = false;
       this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Delete failed.";
@@ -568,7 +575,6 @@ export default class MediaGalleryPage extends Component {
     try {
       await ajax(endpoint, { type: "POST" });
 
-      // Optimistic update (API returns only success: true)
       item.liked = !wasLiked;
       const current = parseInt(item.likes_count || 0, 10) || 0;
       item.likes_count = Math.max(0, wasLiked ? current - 1 : current + 1);
@@ -681,7 +687,6 @@ export default class MediaGalleryPage extends Component {
       let media = res?.media_items || [];
       const total = res?.total ?? media.length;
 
-      // Server-side doesn't support q yet; filter client-side for MVP
       if (this.q?.trim()) {
         const q = this.q.trim().toLowerCase();
         media = media.filter((m) => {

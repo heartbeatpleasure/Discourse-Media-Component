@@ -319,7 +319,14 @@
                       </button>
                     {{/if}}
 
-                    <button class="btn btn-small btn-danger" type="button" {{on "click" (fn this.openDeleteConfirm item)}}>
+                    {{!-- Delete disabled while queued/processing --}}
+                    <button
+                      class="btn btn-small btn-danger"
+                      type="button"
+                      disabled={{or (eq item.status "queued") (eq item.status "processing")}}
+                      title={{if (or (eq item.status "queued") (eq item.status "processing")) "You can delete this item after processing is complete." ""}}
+                      {{on "click" (fn this.openDeleteConfirm item)}}
+                    >
                       Delete
                     </button>
                   </div>
