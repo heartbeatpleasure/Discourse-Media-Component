@@ -5,7 +5,19 @@ import { action } from "@ember/object";
 import { ajax } from "discourse/lib/ajax";
 import I18n from "I18n";
 
-function normalizeTags(input) {
+function normalizeListSetting(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
+
+  // Discourse "list" site settings often come through as pipe-separated strings.
+  const str = String(raw);
+  return str
+    .split(/[\|\n,]/g)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function normalizeTagsFromText(input) {
   return (input || "")
     .split(",")
     .map((t) => t.trim())
@@ -36,6 +48,7 @@ export default class MediaGalleryPage extends Component {
   @tracked mediaType = "";
   @tracked gender = "";
   @tracked tagsRaw = "";
+  @tracked tagsSelected = [];
   @tracked status = ""; // only for "mine"
 
   // Upload UI
@@ -45,6 +58,7 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadTitle = "";
   @tracked uploadDescription = "";
   @tracked uploadTagsRaw = "";
+  @tracked uploadTagsSelected = [];
   @tracked uploadGender = "";
 
   // Preview modal
@@ -52,10 +66,18 @@ export default class MediaGalleryPage extends Component {
   @tracked previewItem = null;
   @tracked previewStreamUrl = null;
   @tracked previewLoading = false;
+  @tracked previewRetryCount = 0;
+
+  _pollTimer = null;
 
   constructor() {
     super(...arguments);
     this.refresh();
+  }
+
+  willDestroy() {
+    super.willDestroy(...arguments);
+    this.stopPolling();
   }
 
   get isMine() {
@@ -73,6 +95,46 @@ export default class MediaGalleryPage extends Component {
 
   get hasNext() {
     return this.page < this.totalPages;
+  }
+
+  get allowedTags() {
+    const raw = window?.Discourse?.SiteSettings?.media_gallery_allowed_tags;
+    return normalizeListSetting(raw);
+  }
+
+  get filterTags() {
+    if (this.allowedTags.length) return this.tagsSelected;
+    return normalizeTagsFromText(this.tagsRaw);
+  }
+
+  get uploadTags() {
+    if (this.allowedTags.length) return this.uploadTagsSelected;
+    return normalizeTagsFromText(this.uploadTagsRaw);
+  }
+
+  // -----------------------
+  // Polling
+  // -----------------------
+  stopPolling() {
+    if (this._pollTimer) {
+      clearTimeout(this._pollTimer);
+      this._pollTimer = null;
+    }
+  }
+
+  schedulePollingIfNeeded() {
+    this.stopPolling();
+
+    // Only poll on "My uploads", and only if there are in-flight items.
+    if (!this.isMine) return;
+
+    const hasInFlight = (this.items || []).some((i) => i?.status === "queued" || i?.status === "processing");
+    if (!hasInFlight) return;
+
+    this._pollTimer = setTimeout(() => {
+      // Silent refresh to avoid flicker/spinner while polling.
+      this.refresh({ silent: true });
+    }, 4000);
   }
 
   // -----------------------
@@ -110,6 +172,11 @@ export default class MediaGalleryPage extends Component {
   @action setStatus(e) { this.status = e.target.value; }
 
   @action
+  setTagsSelected(e) {
+    this.tagsSelected = Array.from(e.target.selectedOptions || []).map((o) => o.value);
+  }
+
+  @action
   setPerPage(e) {
     const v = parseInt(e.target.value, 10);
     this.perPage = Number.isFinite(v) ? v : 24;
@@ -121,6 +188,7 @@ export default class MediaGalleryPage extends Component {
     this.mediaType = "";
     this.gender = "";
     this.tagsRaw = "";
+    this.tagsSelected = [];
     this.status = "";
     this.page = 1;
     this.refresh();
@@ -135,7 +203,10 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   // Upload
   // -----------------------
-  @action toggleUpload() { this.showUpload = !this.showUpload; }
+  @action
+  toggleUpload() {
+    this.showUpload = !this.showUpload;
+  }
 
   @action
   onPickFile(e) {
@@ -152,11 +223,17 @@ export default class MediaGalleryPage extends Component {
   @action setUploadGender(e) { this.uploadGender = e.target.value; }
 
   @action
+  setUploadTagsSelected(e) {
+    this.uploadTagsSelected = Array.from(e.target.selectedOptions || []).map((o) => o.value);
+  }
+
+  @action
   resetUploadForm() {
     this.uploadFile = null;
     this.uploadTitle = "";
     this.uploadDescription = "";
     this.uploadTagsRaw = "";
+    this.uploadTagsSelected = [];
     this.uploadGender = "";
   }
 
@@ -172,6 +249,12 @@ export default class MediaGalleryPage extends Component {
 
     if (!this.uploadTitle?.trim()) {
       this.errorMessage = I18n.t("media_gallery.errors.missing_title");
+      return;
+    }
+
+    // Gender is required for upload (per your UX requirement).
+    if (!this.uploadGender) {
+      this.errorMessage = "Please select a gender.";
       return;
     }
 
@@ -200,23 +283,30 @@ export default class MediaGalleryPage extends Component {
       const payload = {
         upload_id: uploadId,
         title: this.uploadTitle.trim(),
+        gender: this.uploadGender,
       };
 
       if (this.uploadDescription?.trim()) payload.description = this.uploadDescription.trim();
 
-      const tags = normalizeTags(this.uploadTagsRaw);
+      const tags = this.uploadTags;
       if (tags.length) payload.tags = tags;
 
-      if (this.uploadGender) payload.gender = this.uploadGender;
-
-      await ajax("/media", { type: "POST", data: payload });
+      const createRes = await ajax("/media", { type: "POST", data: payload });
 
       this.noticeMessage = I18n.t("media_gallery.uploading_notice");
       this.resetUploadForm();
 
+      // Switch to "My uploads" and refresh.
       this.activeTab = "mine";
       this.page = 1;
       await this.refresh();
+
+      // Ensure polling starts immediately after creating an item.
+      // (Processing can take a while; this keeps the UI updating without manual refresh.)
+      this.schedulePollingIfNeeded();
+
+      // Optional: if createRes has public_id/status, we could highlight it later.
+      void createRes;
     } catch (e) {
       const status = e?.jqXHR?.status;
       if (status === 404 || status === 403) {
@@ -229,6 +319,26 @@ export default class MediaGalleryPage extends Component {
       }
     } finally {
       this.uploadBusy = false;
+    }
+  }
+
+  // -----------------------
+  // Thumbnail fallback (client-side)
+  // -----------------------
+  @action
+  onThumbError(item, ev) {
+    // Avoid infinite error loops
+    if (!item || item._thumbFailed) return;
+    item._thumbFailed = true;
+
+    // Force rerender
+    this.items = [...this.items];
+
+    // Also stop the browser from retrying endlessly
+    try {
+      if (ev?.target) ev.target.src = "";
+    } catch {
+      // ignore
     }
   }
 
@@ -257,8 +367,17 @@ export default class MediaGalleryPage extends Component {
   }
 
   // -----------------------
-  // Preview
+  // Preview (token refresh on error)
   // -----------------------
+  async fetchPreviewStreamUrl({ resetRetry } = { resetRetry: false }) {
+    if (!this.previewItem?.public_id) return;
+
+    if (resetRetry) this.previewRetryCount = 0;
+
+    const res = await ajax(`/media/${this.previewItem.public_id}/play`, { type: "GET" });
+    this.previewStreamUrl = res?.stream_url || null;
+  }
+
   @action
   async openPreview(item) {
     if (!item?.public_id) return;
@@ -268,11 +387,11 @@ export default class MediaGalleryPage extends Component {
     this.previewItem = item;
     this.previewStreamUrl = null;
     this.previewLoading = true;
+    this.previewRetryCount = 0;
     this.errorMessage = null;
 
     try {
-      const res = await ajax(`/media/${item.public_id}/play`, { type: "GET" });
-      this.previewStreamUrl = res?.stream_url || null;
+      await this.fetchPreviewStreamUrl({ resetRetry: true });
     } catch (e) {
       this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
     } finally {
@@ -280,14 +399,35 @@ export default class MediaGalleryPage extends Component {
     }
   }
 
-  @action closePreview() {
+  @action
+  closePreview() {
     this.previewOpen = false;
     this.previewItem = null;
     this.previewStreamUrl = null;
     this.previewLoading = false;
+    this.previewRetryCount = 0;
   }
 
-  @action stopBackdropClick(e) { e?.stopPropagation?.(); }
+  @action
+  stopBackdropClick(e) {
+    e?.stopPropagation?.();
+  }
+
+  @action
+  async onPlayerError() {
+    // Fix: sometimes the first token/stream fetch can fail while the file becomes available.
+    // Retry by requesting a fresh token a few times.
+    if (!this.previewOpen || !this.previewItem?.public_id) return;
+
+    if (this.previewRetryCount >= 3) return;
+    this.previewRetryCount += 1;
+
+    try {
+      await this.fetchPreviewStreamUrl({ resetRetry: false });
+    } catch {
+      // Ignore; user can close/open if needed.
+    }
+  }
 
   @action
   async retryProcessing(item, ev) {
@@ -306,8 +446,10 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   // Data load
   // -----------------------
-  async refresh() {
-    this.loading = true;
+  async refresh({ silent } = { silent: false }) {
+    if (!silent) {
+      this.loading = true;
+    }
     this.errorMessage = null;
 
     try {
@@ -316,7 +458,7 @@ export default class MediaGalleryPage extends Component {
         per_page: this.perPage,
       };
 
-      const tags = normalizeTags(this.tagsRaw);
+      const tags = this.filterTags;
       if (this.mediaType) data.media_type = this.mediaType;
       if (this.gender) data.gender = this.gender;
       if (tags.length) data.tags = tags;
@@ -343,6 +485,9 @@ export default class MediaGalleryPage extends Component {
       this.page = res?.page || this.page;
       this.perPage = res?.per_page || this.perPage;
       this.total = total;
+
+      // Poll if needed (only on My uploads with in-flight items)
+      this.schedulePollingIfNeeded();
     } catch (e) {
       const status = e?.jqXHR?.status;
       if (status === 403 || status === 404) {
@@ -351,7 +496,9 @@ export default class MediaGalleryPage extends Component {
         this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
       }
     } finally {
-      this.loading = false;
+      if (!silent) {
+        this.loading = false;
+      }
     }
   }
 }

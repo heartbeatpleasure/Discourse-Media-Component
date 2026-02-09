@@ -22,7 +22,11 @@
 
     <div>
       <button class="btn btn-primary" type="button" {{on "click" this.toggleUpload}}>
-        {{i18n "media_gallery.upload"}}
+        {{#if this.showUpload}}
+          {{i18n "media_gallery.close"}}
+        {{else}}
+          {{i18n "media_gallery.upload"}}
+        {{/if}}
       </button>
     </div>
   </div>
@@ -36,37 +40,51 @@
   {{/if}}
 
   {{#if this.showUpload}}
-    <div class="hb-media-library-upload">
-      <div class="hb-media-library-upload-grid">
-        <div>
+    <div class="hb-media-library-panel">
+      <div class="hb-media-library-panel-title">Upload</div>
+
+      <div class="hb-media-library-form-grid">
+        <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.pick_file"}}</label>
           <input type="file" accept="image/*,video/*,audio/*" {{on "change" this.onPickFile}} />
-          <div class="hint">
-            {{#if this.uploadFile}}
-              {{this.uploadFile.name}}
-            {{/if}}
-          </div>
+          {{#if this.uploadFile}}
+            <div class="small">{{this.uploadFile.name}}</div>
+          {{/if}}
         </div>
 
-        <div>
+        <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.title_label"}}</label>
           <input type="text" value={{this.uploadTitle}} {{on "input" this.setUploadTitle}} />
         </div>
 
-        <div>
+        <div class="hb-field hb-field--span2">
           <label class="form-label">{{i18n "media_gallery.description_label"}}</label>
-          <input type="text" value={{this.uploadDescription}} {{on "input" this.setUploadDescription}} />
+          <textarea rows="5" value={{this.uploadDescription}} {{on "input" this.setUploadDescription}}></textarea>
         </div>
 
-        <div>
-          <label class="form-label">{{i18n "media_gallery.tags_label"}}</label>
-          <input type="text" value={{this.uploadTagsRaw}} {{on "input" this.setUploadTagsRaw}} />
+        <div class="hb-field">
+          <label class="form-label">Tags</label>
+
+          {{#if (gt this.allowedTags.length 0)}}
+            <select multiple size="6" {{on "change" this.setUploadTagsSelected}}>
+              {{#each this.allowedTags as |t|}}
+                <option value={{t}} selected={{includes this.uploadTagsSelected t}}>{{t}}</option>
+              {{/each}}
+            </select>
+          {{else}}
+            <input
+              type="text"
+              placeholder="tag1, tag2"
+              value={{this.uploadTagsRaw}}
+              {{on "input" this.setUploadTagsRaw}}
+            />
+          {{/if}}
         </div>
 
-        <div>
+        <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.gender_label"}}</label>
           <select {{on "change" this.setUploadGender}} value={{this.uploadGender}}>
-            <option value="">{{i18n "media_gallery.any"}}</option>
+            <option value="">Select gender</option>
             <option value="male">{{i18n "media_gallery.genders.male"}}</option>
             <option value="female">{{i18n "media_gallery.genders.female"}}</option>
             <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
@@ -74,7 +92,7 @@
         </div>
       </div>
 
-      <div class="hb-media-library-upload-actions">
+      <div class="hb-media-library-actions-row">
         <button
           class="btn btn-primary"
           type="button"
@@ -84,7 +102,7 @@
           {{#if this.uploadBusy}}
             {{i18n "media_gallery.uploading"}}
           {{else}}
-            {{i18n "media_gallery.upload"}}
+            Start upload
           {{/if}}
         </button>
 
@@ -94,64 +112,90 @@
           disabled={{this.uploadBusy}}
           {{on "click" this.resetUploadForm}}
         >
-          {{i18n "media_gallery.clear"}}
+          Reset form
         </button>
       </div>
     </div>
   {{/if}}
 
-  <div class="hb-media-library-toolbar">
-    <input
-      type="text"
-      placeholder={{i18n "media_gallery.search_placeholder"}}
-      value={{this.q}}
-      {{on "input" this.setQ}}
-    />
+  <div class="hb-media-library-panel">
+    <div class="hb-media-library-panel-title">Filters</div>
 
-    <select {{on "change" this.setMediaType}} value={{this.mediaType}}>
-      <option value="">{{i18n "media_gallery.type_label"}}: {{i18n "media_gallery.any"}}</option>
-      <option value="image">image</option>
-      <option value="video">video</option>
-      <option value="audio">audio</option>
-    </select>
+    <div class="hb-media-library-form-grid">
+      <div class="hb-field hb-field--span2">
+        <label class="form-label">{{i18n "media_gallery.search_placeholder"}}</label>
+        <input type="text" value={{this.q}} {{on "input" this.setQ}} />
+      </div>
 
-    <select {{on "change" this.setGender}} value={{this.gender}}>
-      <option value="">{{i18n "media_gallery.gender_label"}}: {{i18n "media_gallery.any"}}</option>
-      <option value="male">{{i18n "media_gallery.genders.male"}}</option>
-      <option value="female">{{i18n "media_gallery.genders.female"}}</option>
-      <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
-    </select>
-
-    <input
-      type="text"
-      placeholder={{i18n "media_gallery.tags_label"}}
-      value={{this.tagsRaw}}
-      {{on "input" this.setTagsRaw}}
-    />
-
-    <div class="hb-media-library-toolbar-actions">
-      {{#if this.isMine}}
-        <select {{on "change" this.setStatus}} value={{this.status}} title={{i18n "media_gallery.status_label"}}>
-          <option value="">{{i18n "media_gallery.status_all"}}</option>
-          <option value="queued">{{i18n "media_gallery.status_queued"}}</option>
-          <option value="processing">{{i18n "media_gallery.status_processing"}}</option>
-          <option value="ready">{{i18n "media_gallery.status_ready"}}</option>
-          <option value="failed">{{i18n "media_gallery.status_failed"}}</option>
+      <div class="hb-field">
+        <label class="form-label">{{i18n "media_gallery.type_label"}}</label>
+        <select {{on "change" this.setMediaType}} value={{this.mediaType}}>
+          <option value="">Do not consider</option>
+          <option value="image">image</option>
+          <option value="video">video</option>
+          <option value="audio">audio</option>
         </select>
+      </div>
+
+      <div class="hb-field">
+        <label class="form-label">{{i18n "media_gallery.gender_label"}}</label>
+        <select {{on "change" this.setGender}} value={{this.gender}}>
+          <option value="">Do not consider</option>
+          <option value="male">{{i18n "media_gallery.genders.male"}}</option>
+          <option value="female">{{i18n "media_gallery.genders.female"}}</option>
+          <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
+        </select>
+      </div>
+
+      <div class="hb-field hb-field--span2">
+        <label class="form-label">Tags</label>
+
+        {{#if (gt this.allowedTags.length 0)}}
+          <select multiple size="6" {{on "change" this.setTagsSelected}}>
+            {{#each this.allowedTags as |t|}}
+              <option value={{t}} selected={{includes this.tagsSelected t}}>{{t}}</option>
+            {{/each}}
+          </select>
+        {{else}}
+          <input
+            type="text"
+            placeholder="tag1, tag2"
+            value={{this.tagsRaw}}
+            {{on "input" this.setTagsRaw}}
+          />
+        {{/if}}
+      </div>
+
+      {{#if this.isMine}}
+        <div class="hb-field">
+          <label class="form-label">{{i18n "media_gallery.status_label"}}</label>
+          <select {{on "change" this.setStatus}} value={{this.status}}>
+            <option value="">Do not consider</option>
+            <option value="queued">{{i18n "media_gallery.status_queued"}}</option>
+            <option value="processing">{{i18n "media_gallery.status_processing"}}</option>
+            <option value="ready">{{i18n "media_gallery.status_ready"}}</option>
+            <option value="failed">{{i18n "media_gallery.status_failed"}}</option>
+          </select>
+        </div>
       {{/if}}
 
-      <select {{on "change" this.setPerPage}} value={{this.perPage}} title={{i18n "media_gallery.per_page_label"}}>
-        <option value="20">20</option>
-        <option value="24">24</option>
-        <option value="40">40</option>
-      </select>
+      <div class="hb-field">
+        <label class="form-label">{{i18n "media_gallery.per_page_label"}}</label>
+        <select {{on "change" this.setPerPage}} value={{this.perPage}}>
+          <option value="20">20</option>
+          <option value="24">24</option>
+          <option value="40">40</option>
+        </select>
+      </div>
+    </div>
 
+    <div class="hb-media-library-actions-row">
       <button class="btn btn-primary" type="button" {{on "click" this.applyFilters}}>
-        {{i18n "media_gallery.apply"}}
+        Search
       </button>
 
       <button class="btn btn-default" type="button" {{on "click" this.clearFilters}}>
-        {{i18n "media_gallery.clear"}}
+        Reset filters
       </button>
     </div>
   </div>
@@ -163,8 +207,21 @@
       <div class="hb-media-library-grid">
         {{#each this.items as |item|}}
           <div class="hb-media-library-card" role="button" tabindex="0" {{on "click" (fn this.openPreview item)}}>
-            <div class="hb-media-library-thumb">
-              <img alt="" src={{item.thumbnail_url}} loading="lazy" />
+            <div class="hb-media-library-thumb {{if (or (not (eq item.status "ready")) item._thumbFailed) "hb-media-library-thumb--placeholder"}}">
+              {{#if (and (eq item.status "ready") (not item._thumbFailed))}}
+                <img
+                  alt=""
+                  src={{item.thumbnail_url}}
+                  loading="lazy"
+                  {{on "error" (fn this.onThumbError item)}}
+                />
+              {{else}}
+                {{#if item.status}}
+                  {{item.status}}
+                {{else}}
+                  loading
+                {{/if}}
+              {{/if}}
             </div>
 
             <div class="hb-media-library-meta">
@@ -237,9 +294,9 @@
               {{#if (eq this.previewItem.media_type "image")}}
                 <img alt="" src={{this.previewStreamUrl}} />
               {{else if (eq this.previewItem.media_type "video")}}
-                <video controls src={{this.previewStreamUrl}}></video>
+                <video controls src={{this.previewStreamUrl}} {{on "error" this.onPlayerError}}></video>
               {{else if (eq this.previewItem.media_type "audio")}}
-                <audio controls src={{this.previewStreamUrl}}></audio>
+                <audio controls src={{this.previewStreamUrl}} {{on "error" this.onPlayerError}}></audio>
               {{/if}}
             </div>
 
