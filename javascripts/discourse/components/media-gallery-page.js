@@ -1,0 +1,357 @@
+// javascripts/discourse/components/media-gallery-page.js
+import Component from "@glimmer/component";
+import { tracked } from "@glimmer/tracking";
+import { action } from "@ember/object";
+import { ajax } from "discourse/lib/ajax";
+import I18n from "I18n";
+
+function normalizeTags(input) {
+  return (input || "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function stripExt(filename) {
+  return filename?.replace(/\.[^/.]+$/, "") || filename;
+}
+
+export default class MediaGalleryPage extends Component {
+  // Tabs
+  @tracked activeTab = "all"; // all | mine
+
+  // Loading / messaging
+  @tracked loading = false;
+  @tracked errorMessage = null;
+  @tracked noticeMessage = null;
+
+  // Data
+  @tracked items = [];
+  @tracked page = 1;
+  @tracked perPage = 24;
+  @tracked total = 0;
+
+  // Filters
+  @tracked q = "";
+  @tracked mediaType = "";
+  @tracked gender = "";
+  @tracked tagsRaw = "";
+  @tracked status = ""; // only for "mine"
+
+  // Upload UI
+  @tracked showUpload = false;
+  @tracked uploadBusy = false;
+  @tracked uploadFile = null;
+  @tracked uploadTitle = "";
+  @tracked uploadDescription = "";
+  @tracked uploadTagsRaw = "";
+  @tracked uploadGender = "";
+
+  // Preview modal
+  @tracked previewOpen = false;
+  @tracked previewItem = null;
+  @tracked previewStreamUrl = null;
+  @tracked previewLoading = false;
+
+  constructor() {
+    super(...arguments);
+    this.refresh();
+  }
+
+  get isMine() {
+    return this.activeTab === "mine";
+  }
+
+  get totalPages() {
+    const pp = this.perPage || 1;
+    return Math.max(1, Math.ceil((this.total || 0) / pp));
+  }
+
+  get hasPrev() {
+    return this.page > 1;
+  }
+
+  get hasNext() {
+    return this.page < this.totalPages;
+  }
+
+  // -----------------------
+  // Tabs / paging
+  // -----------------------
+  @action
+  switchTab(tab) {
+    if (this.activeTab === tab) return;
+    this.activeTab = tab;
+    this.page = 1;
+    this.refresh();
+  }
+
+  @action
+  goPrev() {
+    if (!this.hasPrev) return;
+    this.page = this.page - 1;
+    this.refresh();
+  }
+
+  @action
+  goNext() {
+    if (!this.hasNext) return;
+    this.page = this.page + 1;
+    this.refresh();
+  }
+
+  // -----------------------
+  // Filters
+  // -----------------------
+  @action setQ(e) { this.q = e.target.value; }
+  @action setMediaType(e) { this.mediaType = e.target.value; }
+  @action setGender(e) { this.gender = e.target.value; }
+  @action setTagsRaw(e) { this.tagsRaw = e.target.value; }
+  @action setStatus(e) { this.status = e.target.value; }
+
+  @action
+  setPerPage(e) {
+    const v = parseInt(e.target.value, 10);
+    this.perPage = Number.isFinite(v) ? v : 24;
+  }
+
+  @action
+  clearFilters() {
+    this.q = "";
+    this.mediaType = "";
+    this.gender = "";
+    this.tagsRaw = "";
+    this.status = "";
+    this.page = 1;
+    this.refresh();
+  }
+
+  @action
+  applyFilters() {
+    this.page = 1;
+    this.refresh();
+  }
+
+  // -----------------------
+  // Upload
+  // -----------------------
+  @action toggleUpload() { this.showUpload = !this.showUpload; }
+
+  @action
+  onPickFile(e) {
+    const file = e.target.files?.[0];
+    this.uploadFile = file || null;
+    if (file && !this.uploadTitle) {
+      this.uploadTitle = stripExt(file.name);
+    }
+  }
+
+  @action setUploadTitle(e) { this.uploadTitle = e.target.value; }
+  @action setUploadDescription(e) { this.uploadDescription = e.target.value; }
+  @action setUploadTagsRaw(e) { this.uploadTagsRaw = e.target.value; }
+  @action setUploadGender(e) { this.uploadGender = e.target.value; }
+
+  @action
+  resetUploadForm() {
+    this.uploadFile = null;
+    this.uploadTitle = "";
+    this.uploadDescription = "";
+    this.uploadTagsRaw = "";
+    this.uploadGender = "";
+  }
+
+  @action
+  async submitUpload() {
+    this.noticeMessage = null;
+    this.errorMessage = null;
+
+    if (!this.uploadFile) {
+      this.errorMessage = I18n.t("media_gallery.errors.missing_file");
+      return;
+    }
+
+    if (!this.uploadTitle?.trim()) {
+      this.errorMessage = I18n.t("media_gallery.errors.missing_title");
+      return;
+    }
+
+    this.uploadBusy = true;
+
+    try {
+      // 1) Upload raw file to Discourse
+      const fd = new FormData();
+      fd.append("type", "composer");
+      fd.append("synchronous", "true");
+      fd.append("file", this.uploadFile);
+
+      const uploadRes = await ajax("/uploads.json", {
+        type: "POST",
+        data: fd,
+        processData: false,
+        contentType: false,
+      });
+
+      const uploadId = uploadRes?.id;
+      if (!uploadId) {
+        throw new Error(I18n.t("media_gallery.errors.upload_failed"));
+      }
+
+      // 2) Register in media gallery plugin
+      const payload = {
+        upload_id: uploadId,
+        title: this.uploadTitle.trim(),
+      };
+
+      if (this.uploadDescription?.trim()) payload.description = this.uploadDescription.trim();
+
+      const tags = normalizeTags(this.uploadTagsRaw);
+      if (tags.length) payload.tags = tags;
+
+      if (this.uploadGender) payload.gender = this.uploadGender;
+
+      await ajax("/media", { type: "POST", data: payload });
+
+      this.noticeMessage = I18n.t("media_gallery.uploading_notice");
+      this.resetUploadForm();
+
+      this.activeTab = "mine";
+      this.page = 1;
+      await this.refresh();
+    } catch (e) {
+      const status = e?.jqXHR?.status;
+      if (status === 404 || status === 403) {
+        this.errorMessage = I18n.t("media_gallery.errors.upload_not_allowed");
+      } else {
+        this.errorMessage =
+          e?.jqXHR?.responseJSON?.errors?.join(", ") ||
+          e?.message ||
+          I18n.t("media_gallery.errors.create_failed");
+      }
+    } finally {
+      this.uploadBusy = false;
+    }
+  }
+
+  // -----------------------
+  // Like / Unlike
+  // -----------------------
+  @action
+  async toggleLike(item, ev) {
+    ev?.stopPropagation?.();
+    if (!item?.public_id) return;
+
+    const wasLiked = !!item.liked;
+    const endpoint = wasLiked ? `/media/${item.public_id}/unlike` : `/media/${item.public_id}/like`;
+
+    try {
+      await ajax(endpoint, { type: "POST" });
+
+      // Optimistic update (API returns only success: true)
+      item.liked = !wasLiked;
+      const current = parseInt(item.likes_count || 0, 10) || 0;
+      item.likes_count = Math.max(0, wasLiked ? current - 1 : current + 1);
+      this.items = [...this.items];
+    } catch (e) {
+      this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
+    }
+  }
+
+  // -----------------------
+  // Preview
+  // -----------------------
+  @action
+  async openPreview(item) {
+    if (!item?.public_id) return;
+    if (item.playable === false) return;
+
+    this.previewOpen = true;
+    this.previewItem = item;
+    this.previewStreamUrl = null;
+    this.previewLoading = true;
+    this.errorMessage = null;
+
+    try {
+      const res = await ajax(`/media/${item.public_id}/play`, { type: "GET" });
+      this.previewStreamUrl = res?.stream_url || null;
+    } catch (e) {
+      this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
+    } finally {
+      this.previewLoading = false;
+    }
+  }
+
+  @action closePreview() {
+    this.previewOpen = false;
+    this.previewItem = null;
+    this.previewStreamUrl = null;
+    this.previewLoading = false;
+  }
+
+  @action stopBackdropClick(e) { e?.stopPropagation?.(); }
+
+  @action
+  async retryProcessing(item, ev) {
+    ev?.stopPropagation?.();
+    if (!item?.public_id) return;
+
+    try {
+      await ajax(`/media/${item.public_id}/retry`, { type: "POST" });
+      this.noticeMessage = I18n.t("media_gallery.retry_queued");
+      await this.refresh();
+    } catch (e) {
+      this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
+    }
+  }
+
+  // -----------------------
+  // Data load
+  // -----------------------
+  async refresh() {
+    this.loading = true;
+    this.errorMessage = null;
+
+    try {
+      const data = {
+        page: this.page,
+        per_page: this.perPage,
+      };
+
+      const tags = normalizeTags(this.tagsRaw);
+      if (this.mediaType) data.media_type = this.mediaType;
+      if (this.gender) data.gender = this.gender;
+      if (tags.length) data.tags = tags;
+
+      const endpoint = this.isMine ? "/media/my" : "/media";
+      if (this.isMine && this.status) data.status = this.status;
+
+      const res = await ajax(endpoint, { type: "GET", data });
+
+      let media = res?.media_items || [];
+      const total = res?.total ?? media.length;
+
+      // Server-side doesn't support q yet; filter client-side for MVP
+      if (this.q?.trim()) {
+        const q = this.q.trim().toLowerCase();
+        media = media.filter((m) => {
+          const t = (m.title || "").toLowerCase();
+          const d = (m.description || "").toLowerCase();
+          return t.includes(q) || d.includes(q);
+        });
+      }
+
+      this.items = media;
+      this.page = res?.page || this.page;
+      this.perPage = res?.per_page || this.perPage;
+      this.total = total;
+    } catch (e) {
+      const status = e?.jqXHR?.status;
+      if (status === 403 || status === 404) {
+        this.errorMessage = I18n.t("media_gallery.errors.not_available");
+      } else {
+        this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
+      }
+    } finally {
+      this.loading = false;
+    }
+  }
+}

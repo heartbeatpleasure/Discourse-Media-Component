@@ -1,0 +1,7 @@
+{
+  "name": "Discourse Media Component",
+  "about_url": "https://github.com/heartbeatpleasure/Discourse-Media-Component",
+  "license_url": "https://github.com/heartbeatpleasure/Discourse-Media-Component/blob/main/LICENSE",
+  "authors": "Chris",
+  "component": true
+}
