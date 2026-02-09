@@ -586,11 +586,28 @@ export default class MediaGalleryPage extends Component {
       it._thumbFailed = !!prev?._thumbFailed;
       it._thumbRetries = prev?._thumbRetries || 0;
       it._thumbQueued = false;
-      it._thumbInFlight = false;
+      // Preserve in-flight marker across refresh() calls. refresh() can run while
+      // thumbs are still loading; if we drop this flag, the subsequent DOM
+      // load/error events may be ignored and the UI can get stuck on the
+      // placeholder.
+      it._thumbInFlight = !!prev?._thumbInFlight;
     }
   }
 
   _enqueueThumbLoadsForCurrentItems() {
+    // Rebuild queue and in-flight counter from current items.
+    // refresh() may be called while thumbnails are still loading; we must not
+    // lose track of those in-flight requests, or we can exceed concurrency and
+    // also miss the UI transition away from the placeholder.
+    this._thumbQueue = [];
+    this._thumbInFlight = 0;
+
+    for (const item of this.items || []) {
+      if (item?._thumbInFlight) {
+        this._thumbInFlight += 1;
+      }
+    }
+
     // Queue thumbnails for all ready items (concurrency limited)
     for (const item of this.items || []) {
       this._enqueueThumbItem(item);
@@ -604,6 +621,9 @@ export default class MediaGalleryPage extends Component {
     if (item.status !== "ready") return;
     if (item._thumbFailed) return;
     if (item._thumbLoaded) return;
+    // If the <img> already has a src, let it finish (and rely on load/insert)
+    // rather than starting a new request on every refresh.
+    if (item._thumbSrc) return;
     if (!item.thumbnail_url) return;
     if (item._thumbQueued) return;
     if (item._thumbInFlight) return;
@@ -666,13 +686,15 @@ export default class MediaGalleryPage extends Component {
   @action
   onThumbLoad(item) {
     if (!item || item._thumbFailed) return;
-    if (!item._thumbInFlight) return;
+    const wasInFlight = !!item._thumbInFlight;
 
     item._thumbLoaded = true;
     item._thumbInFlight = false;
     item._thumbQueued = false;
 
-    this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+    if (wasInFlight) {
+      this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+    }
     this.items = [...this.items];
     this._pumpThumbQueue();
   }
@@ -681,7 +703,7 @@ export default class MediaGalleryPage extends Component {
   @action
   onThumbError(item, ev) {
     if (!item || item._thumbFailed) return;
-    if (!item._thumbInFlight) return;
+    const wasInFlight = !!item._thumbInFlight;
 
     const attempt = parseInt(item._thumbRetries || 0, 10) || 0;
     const nextAttempt = attempt + 1;
@@ -694,7 +716,9 @@ export default class MediaGalleryPage extends Component {
     // Release slot immediately (lets other thumbs continue) and re-queue after delay
     item._thumbInFlight = false;
     item._thumbQueued = false;
-    this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+    if (wasInFlight) {
+      this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+    }
     this.items = [...this.items];
 
     if (nextAttempt <= THUMB_RETRY_LIMIT) {
@@ -862,7 +886,6 @@ export default class MediaGalleryPage extends Component {
 
       // Prime thumbnail state and then enqueue loads
       this._primeThumbState(media);
-      this._resetThumbQueue();
 
       this.items = media;
       this.page = res?.page || this.page;
