@@ -101,6 +101,8 @@ export default class MediaGalleryPage extends Component {
   _pollTimer = null;
   _boundDocClick = null;
 
+  _destroyed = false;
+
   // Thumbnail queue state
   _thumbQueue = [];
   _thumbInFlight = 0;
@@ -117,6 +119,8 @@ export default class MediaGalleryPage extends Component {
   willDestroy() {
     super.willDestroy(...arguments);
     this.stopPolling();
+
+    this._destroyed = true;
 
     if (this._boundDocClick) {
       document.removeEventListener("click", this._boundDocClick);
@@ -556,7 +560,15 @@ export default class MediaGalleryPage extends Component {
   }
 
   // -----------------------
-  // Thumbnails (queue + concurrency limit)
+  // Thumbnails (concurrency limited, using DOM <img> load/error events)
+  //
+  // Why this approach:
+  // - Preloading with `new Image()` can load resources (visible in DevTools)
+  //   without reliably flipping UI state in some Discourse/Ember setups,
+  //   leaving the UI stuck on “Loading thumbnail…”.
+  // - Here we control *when* an <img> gets a `src` (max concurrency) and we
+  //   rely on the actual DOM `load`/`error` events to mark the thumbnail as
+  //   loaded/failed. That keeps the UI and network in sync.
   // -----------------------
   _resetThumbQueue() {
     this._thumbQueue = [];
@@ -570,90 +582,106 @@ export default class MediaGalleryPage extends Component {
     for (const it of newItems) {
       const prev = prevById.get(it?.public_id);
       it._thumbSrc = prev?._thumbSrc || null;
+      it._thumbLoaded = !!prev?._thumbLoaded;
       it._thumbFailed = !!prev?._thumbFailed;
       it._thumbRetries = prev?._thumbRetries || 0;
       it._thumbQueued = false;
+      it._thumbInFlight = false;
     }
   }
 
   _enqueueThumbLoadsForCurrentItems() {
     // Queue thumbnails for all ready items (concurrency limited)
     for (const item of this.items || []) {
-      if (!item) continue;
-      if (item.status !== "ready") continue;
-      if (item._thumbFailed) continue;
-      if (item._thumbSrc) continue;
-      if (!item.thumbnail_url) continue;
-      if (item._thumbQueued) continue;
-
-      item._thumbQueued = true;
-      this._thumbQueue.push(item);
+      this._enqueueThumbItem(item);
     }
 
     this._pumpThumbQueue();
   }
 
+  _enqueueThumbItem(item) {
+    if (!item) return;
+    if (item.status !== "ready") return;
+    if (item._thumbFailed) return;
+    if (item._thumbLoaded) return;
+    if (!item.thumbnail_url) return;
+    if (item._thumbQueued) return;
+    if (item._thumbInFlight) return;
+
+    item._thumbQueued = true;
+    this._thumbQueue.push(item);
+  }
+
   _pumpThumbQueue() {
     while (this._thumbInFlight < THUMB_MAX_CONCURRENCY && this._thumbQueue.length > 0) {
       const item = this._thumbQueue.shift();
-      if (!item || item._thumbSrc || item._thumbFailed || !item.thumbnail_url) {
+      if (!item || item._thumbLoaded || item._thumbFailed || !item.thumbnail_url) {
         continue;
       }
 
       this._thumbInFlight += 1;
 
-      this._loadThumbWithRetry(item)
-        .catch(() => {
-          // handled inside
-        })
-        .finally(() => {
-          this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
-          this._pumpThumbQueue();
-        });
-    }
-  }
+      item._thumbQueued = false;
+      item._thumbInFlight = true;
+      item._thumbSrc = item.thumbnail_url;
 
-  async _loadThumbWithRetry(item) {
-    const url = item.thumbnail_url;
-    const attempt = parseInt(item._thumbRetries || 0, 10) || 0;
-
-    try {
-      await this._preloadImage(url);
-      item._thumbSrc = url;
-      item._thumbFailed = false;
       // Force rerender (Glimmer doesn't track deep mutations reliably)
       this.items = [...this.items];
-    } catch (e) {
-      const nextAttempt = attempt + 1;
-      item._thumbRetries = nextAttempt;
-
-      if (nextAttempt <= THUMB_RETRY_LIMIT) {
-        const delay = THUMB_RETRY_BASE_DELAY_MS * Math.pow(2, nextAttempt - 1);
-        await sleep(delay);
-        return this._loadThumbWithRetry(item);
-      }
-
-      item._thumbFailed = true;
-      this.items = [...this.items];
     }
   }
 
-  _preloadImage(url) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(true);
-      img.onerror = () => reject(new Error("thumb_load_failed"));
-      img.src = url;
-    });
+  // Called by <img onload>
+  @action
+  onThumbLoad(item) {
+    if (!item || item._thumbFailed) return;
+    if (!item._thumbInFlight) return;
+
+    item._thumbLoaded = true;
+    item._thumbInFlight = false;
+    item._thumbQueued = false;
+
+    this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+    this.items = [...this.items];
+    this._pumpThumbQueue();
   }
 
   // Called by <img onerror>
   @action
   onThumbError(item, ev) {
     if (!item || item._thumbFailed) return;
+    if (!item._thumbInFlight) return;
 
-    item._thumbFailed = true;
+    const attempt = parseInt(item._thumbRetries || 0, 10) || 0;
+    const nextAttempt = attempt + 1;
+    item._thumbRetries = nextAttempt;
+
+    // Always clear src so the broken image never flashes
     item._thumbSrc = null;
+    item._thumbLoaded = false;
+
+    // Release slot immediately (lets other thumbs continue) and re-queue after delay
+    item._thumbInFlight = false;
+    item._thumbQueued = false;
+    this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+    this.items = [...this.items];
+
+    if (nextAttempt <= THUMB_RETRY_LIMIT) {
+      const delay = THUMB_RETRY_BASE_DELAY_MS * Math.pow(2, nextAttempt - 1);
+      setTimeout(() => {
+        // Component might have been destroyed / items changed
+        if (this._destroyed) return;
+        if (!this.items || !this.items.includes(item)) return;
+        if (item._thumbFailed || item._thumbLoaded) return;
+        if (item.status !== "ready" || !item.thumbnail_url) return;
+
+        this._enqueueThumbItem(item);
+        this._pumpThumbQueue();
+      }, delay);
+      return;
+    }
+
+    // Give up
+    item._thumbFailed = true;
     this.items = [...this.items];
 
     try {
@@ -661,6 +689,8 @@ export default class MediaGalleryPage extends Component {
     } catch {
       // ignore
     }
+
+    this._pumpThumbQueue();
   }
 
   // -----------------------
