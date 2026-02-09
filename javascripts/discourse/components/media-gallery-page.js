@@ -38,6 +38,15 @@ function isProcessingStatus(status) {
   return status === "queued" || status === "processing";
 }
 
+// Thumbnail loader (prevents Nginx rate-limit bursts by limiting concurrent thumbnail requests)
+const THUMB_MAX_CONCURRENCY = 6;
+const THUMB_RETRY_LIMIT = 3;
+const THUMB_RETRY_BASE_DELAY_MS = 500;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default class MediaGalleryPage extends Component {
   // Tabs
   @tracked activeTab = "all"; // all | mine
@@ -91,6 +100,10 @@ export default class MediaGalleryPage extends Component {
 
   _pollTimer = null;
   _boundDocClick = null;
+  _thumbObserver = null;
+  _thumbElementToItem = null;
+  _thumbQueue = null;
+  _thumbInFlight = 0;
 
   constructor() {
     super(...arguments);
@@ -98,12 +111,29 @@ export default class MediaGalleryPage extends Component {
     this._boundDocClick = (e) => this.onDocumentClick(e);
     document.addEventListener("click", this._boundDocClick);
 
+    // Thumbnail lazy-loader (limits concurrent requests to avoid 429 from Nginx rate limiting)
+    this._thumbElementToItem = new WeakMap();
+    this._thumbQueue = [];
+    this._thumbInFlight = 0;
+
+    if (typeof IntersectionObserver !== "undefined") {
+      this._thumbObserver = new IntersectionObserver(
+        (entries) => this._onThumbIntersect(entries),
+        { root: null, rootMargin: "200px 0px", threshold: 0.01 }
+      );
+    }
+
     this.refresh();
   }
 
   willDestroy() {
     super.willDestroy(...arguments);
     this.stopPolling();
+
+    if (this._thumbObserver) {
+      this._thumbObserver.disconnect();
+      this._thumbObserver = null;
+    }
 
     if (this._boundDocClick) {
       document.removeEventListener("click", this._boundDocClick);
@@ -546,19 +576,130 @@ export default class MediaGalleryPage extends Component {
   }
 
   // -----------------------
-  // Thumbnail fallback (client-side)
+  // Thumbnail lazy-loader (client-side)
   // -----------------------
+  _resetThumbQueueState() {
+    // Called after refresh, to ensure new DOM nodes get observed.
+    if (this._thumbQueue) {
+      this._thumbQueue.length = 0;
+    } else {
+      this._thumbQueue = [];
+    }
+    this._thumbInFlight = 0;
+  }
+
+  _onThumbIntersect(entries) {
+    if (!entries?.length) return;
+
+    for (const entry of entries) {
+      if (!entry?.isIntersecting) continue;
+      const el = entry.target;
+      const item = this._thumbElementToItem?.get(el);
+      if (!item) continue;
+
+      // Only queue once
+      if (item._thumbQueued || item._thumbSrc || item._thumbFailed) {
+        this._thumbObserver?.unobserve(el);
+        continue;
+      }
+
+      this._thumbObserver?.unobserve(el);
+      this._enqueueThumbLoad(item);
+    }
+  }
+
+  _enqueueThumbLoad(item) {
+    if (!item?.thumbnail_url) {
+      item._thumbFailed = true;
+      this.items = [...this.items];
+      return;
+    }
+
+    item._thumbQueued = true;
+    this._thumbQueue.push(item);
+    this._pumpThumbQueue();
+  }
+
+  _pumpThumbQueue() {
+    if (!this._thumbQueue?.length) return;
+
+    while (this._thumbInFlight < THUMB_MAX_CONCURRENCY && this._thumbQueue.length > 0) {
+      const item = this._thumbQueue.shift();
+      if (!item || item._thumbSrc || item._thumbFailed) continue;
+
+      this._thumbInFlight += 1;
+      this._loadThumbWithRetry(item)
+        .catch(() => {
+          // Failure is handled in _loadThumbWithRetry
+        })
+        .finally(() => {
+          this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+          this._pumpThumbQueue();
+        });
+    }
+  }
+
+  async _loadThumbWithRetry(item) {
+    const url = item.thumbnail_url;
+    if (!url) {
+      item._thumbFailed = true;
+      this.items = [...this.items];
+      return;
+    }
+
+    const attempt = parseInt(item._thumbRetries || 0, 10) || 0;
+
+    try {
+      await this._preloadImage(url);
+      item._thumbSrc = url;
+      item._thumbFailed = false;
+      this.items = [...this.items];
+    } catch (e) {
+      const nextAttempt = attempt + 1;
+      item._thumbRetries = nextAttempt;
+
+      if (nextAttempt <= THUMB_RETRY_LIMIT) {
+        // Exponential backoff to reduce chance of repeatedly hitting Nginx flood limits
+        const delay = THUMB_RETRY_BASE_DELAY_MS * Math.pow(2, nextAttempt - 1);
+        await sleep(delay);
+        return this._loadThumbWithRetry(item);
+      }
+
+      item._thumbFailed = true;
+      this.items = [...this.items];
+    }
+  }
+
+  _preloadImage(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => reject(new Error("thumb_load_failed"));
+      img.src = url;
+    });
+  }
+
   @action
-  onThumbError(item, ev) {
+  registerThumb(item, element) {
+    // Called by {{did-insert}} in the template
+    if (!element || !item) return;
+    if (!this._thumbObserver) return;
+
+    // Do not queue thumbnails for non-ready items.
+    if (item.status !== "ready") return;
+
+    // If already loaded/failed, nothing to do.
+    if (item._thumbSrc || item._thumbFailed) return;
+
+    this._thumbElementToItem?.set(element, item);
+    this._thumbObserver.observe(element);
+  }
+
+  @action
+  onThumbError(item) {
     if (!item || item._thumbFailed) return;
     item._thumbFailed = true;
     this.items = [...this.items];
-
-    try {
-      if (ev?.target) ev.target.src = "";
-    } catch {
-      // ignore
-    }
   }
 
   // -----------------------
@@ -685,6 +826,9 @@ export default class MediaGalleryPage extends Component {
       const res = await ajax(endpoint, { type: "GET", data });
 
       let media = res?.media_items || [];
+      // Preserve client-only UI state (thumbnail loading status) across refreshes
+      const prevById = new Map((this.items || []).map((it) => [it?.public_id, it]));
+
       const total = res?.total ?? media.length;
 
       if (this.q?.trim()) {
@@ -696,6 +840,21 @@ export default class MediaGalleryPage extends Component {
         });
       }
 
+      for (const m of media) {
+        const prev = prevById.get(m?.public_id);
+        if (prev) {
+          m._thumbSrc = prev._thumbSrc || null;
+          m._thumbFailed = !!prev._thumbFailed;
+          m._thumbRetries = prev._thumbRetries || 0;
+        } else {
+          m._thumbSrc = null;
+          m._thumbFailed = false;
+          m._thumbRetries = 0;
+        }
+        m._thumbQueued = false;
+      }
+
+      this._resetThumbQueueState();
       this.items = media;
       this.page = res?.page || this.page;
       this.perPage = res?.per_page || this.perPage;
