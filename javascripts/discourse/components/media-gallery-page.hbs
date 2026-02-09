@@ -311,10 +311,18 @@
                   {{#if item.liked}}♥{{else}}♡{{/if}} {{item.likes_count}}
                 </button>
 
-                {{#if (and this.isMine (eq item.status "failed"))}}
-                  <button class="btn btn-small btn-danger" type="button" {{on "click" (fn this.retryProcessing item)}}>
-                    {{i18n "media_gallery.retry"}}
-                  </button>
+                {{#if this.isMine}}
+                  <div class="right-actions">
+                    {{#if (eq item.status "failed")}}
+                      <button class="btn btn-small btn-danger" type="button" {{on "click" (fn this.retryProcessing item)}}>
+                        {{i18n "media_gallery.retry"}}
+                      </button>
+                    {{/if}}
+
+                    <button class="btn btn-small btn-danger" type="button" {{on "click" (fn this.openDeleteConfirm item)}}>
+                      Delete
+                    </button>
+                  </div>
                 {{/if}}
               </div>
             </div>
@@ -332,6 +340,7 @@
     {{/if}}
   {{/if}}
 
+  {{!-- Preview modal --}}
   {{#if this.previewOpen}}
     <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closePreview}}>
       <div class="hb-media-library-modal" {{on "click" this.stopBackdropClick}}>
@@ -368,6 +377,43 @@
               </div>
             </div>
           {{/if}}
+        </div>
+      </div>
+    </div>
+  {{/if}}
+
+  {{!-- Delete confirmation modal --}}
+  {{#if this.deleteOpen}}
+    <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closeDeleteConfirm}}>
+      <div class="hb-media-library-modal" {{on "click" this.stopBackdropClick}}>
+        <div class="hb-media-library-modal-header">
+          <div class="title">Delete media item</div>
+          <button class="btn btn-default" type="button" disabled={{this.deleteBusy}} {{on "click" this.closeDeleteConfirm}}>
+            Cancel
+          </button>
+        </div>
+
+        <div class="hb-media-library-modal-body">
+          <p class="danger-text">Are you sure you want to delete this file?</p>
+          <p>This action cannot be undone.</p>
+
+          {{#if this.deleteItem}}
+            <p><strong>{{this.deleteItem.title}}</strong></p>
+          {{/if}}
+
+          <div class="hb-media-library-actions-row">
+            <button class="btn btn-default" type="button" disabled={{this.deleteBusy}} {{on "click" this.closeDeleteConfirm}}>
+              Cancel
+            </button>
+
+            <button class="btn btn-danger" type="button" disabled={{this.deleteBusy}} {{on "click" this.confirmDelete}}>
+              {{#if this.deleteBusy}}
+                Deleting…
+              {{else}}
+                Delete permanently
+              {{/if}}
+            </button>
+          </div>
         </div>
       </div>
     </div>

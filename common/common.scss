@@ -331,6 +331,16 @@
             background: var(--primary-very-low);
           }
         }
+
+        .right-actions {
+          display: flex;
+          gap: 0.35rem;
+          align-items: center;
+
+          .btn {
+            margin: 0;
+          }
+        }
       }
     }
   }
@@ -408,6 +418,11 @@
       display: grid;
       gap: 0.35rem;
       color: var(--primary);
+    }
+
+    .danger-text {
+      color: var(--danger);
+      font-weight: 800;
     }
   }
 }

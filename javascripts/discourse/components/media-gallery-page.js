@@ -80,6 +80,11 @@ export default class MediaGalleryPage extends Component {
   @tracked previewLoading = false;
   @tracked previewRetryCount = 0;
 
+  // Delete confirmation modal
+  @tracked deleteOpen = false;
+  @tracked deleteItem = null;
+  @tracked deleteBusy = false;
+
   _pollTimer = null;
   _boundDocClick = null;
 
@@ -138,7 +143,6 @@ export default class MediaGalleryPage extends Component {
         .slice(0, 50);
     }
 
-    // Free entry mode: suggest adding the query
     if (!q) return [];
     if (selected.has(q)) return [];
     return [this.filterTagsQuery.trim()];
@@ -477,6 +481,60 @@ export default class MediaGalleryPage extends Component {
       }
     } finally {
       this.uploadBusy = false;
+    }
+  }
+
+  // -----------------------
+  // Delete flow (My uploads only)
+  // -----------------------
+  @action
+  openDeleteConfirm(item, ev) {
+    ev?.stopPropagation?.();
+    if (!this.isMine) return;
+    if (!item?.public_id) return;
+
+    this.errorMessage = null;
+    this.noticeMessage = null;
+
+    this.deleteOpen = true;
+    this.deleteItem = item;
+    this.deleteBusy = false;
+  }
+
+  @action
+  closeDeleteConfirm() {
+    if (this.deleteBusy) return;
+    this.deleteOpen = false;
+    this.deleteItem = null;
+    this.deleteBusy = false;
+  }
+
+  @action
+  async confirmDelete() {
+    if (!this.deleteItem?.public_id) return;
+
+    this.deleteBusy = true;
+    this.errorMessage = null;
+    this.noticeMessage = null;
+
+    try {
+      await ajax(`/media/${this.deleteItem.public_id}`, { type: "DELETE" });
+
+      // If the preview is open for the same item, close it.
+      if (this.previewOpen && this.previewItem?.public_id === this.deleteItem.public_id) {
+        this.closePreview();
+      }
+
+      this.noticeMessage = "Media item deleted.";
+      this.deleteOpen = false;
+      this.deleteItem = null;
+      this.deleteBusy = false;
+
+      await this.refresh();
+    } catch (e) {
+      this.deleteBusy = false;
+      this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Delete failed.";
+      // Keep modal open so the user can retry or cancel
     }
   }
 
