@@ -46,10 +46,25 @@
       <div class="hb-media-library-form-grid">
         <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.pick_file"}}</label>
-          <input type="file" accept="image/*,video/*,audio/*" {{on "change" this.onPickFile}} />
-          {{#if this.uploadFile}}
-            <div class="small">{{this.uploadFile.name}}</div>
-          {{/if}}
+          <div class="hb-file-picker">
+            <input
+              id="hb-media-upload-file"
+              class="hb-file-picker__input"
+              type="file"
+              accept="image/*,video/*,audio/*"
+              {{on "change" this.onPickFile}}
+            />
+
+            <label class="btn btn-default hb-file-picker__btn" for="hb-media-upload-file">
+              {{i18n "media_gallery.pick_file"}}
+            </label>
+
+            {{#if this.uploadFile}}
+              <span class="hb-file-picker__filename" title={{this.uploadFile.name}}>
+                {{this.uploadFile.name}}
+              </span>
+            {{/if}}
+          </div>
         </div>
 
         <div class="hb-field">
@@ -276,12 +291,19 @@
                 />
               {{else}}
                 <span class="hb-media-library-thumb-loading">
-                  {{#if item._thumbFailed}}
-                    No thumbnail
-                  {{else if item.status}}
-                    {{item.status}}
+                  {{#if (eq item.media_type "audio")}}
+                    <span class="hb-media-library-audio-thumb">
+                      {{d-icon "music"}}
+                      <span class="hb-media-library-audio-thumb__text">Audio</span>
+                    </span>
                   {{else}}
-                    Loading
+                    {{#if item._thumbFailed}}
+                      No thumbnail
+                    {{else if item.status}}
+                      {{item.status}}
+                    {{else}}
+                      Loading
+                    {{/if}}
                   {{/if}}
                 </span>
               {{/if}}

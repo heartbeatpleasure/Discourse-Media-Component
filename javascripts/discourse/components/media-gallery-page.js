@@ -433,6 +433,9 @@ export default class MediaGalleryPage extends Component {
 
   @action
   onPickFile(e) {
+    // Keep a ref to the native file input so we can reliably clear it
+    // (otherwise browsers keep showing part of the previous filename).
+    this._uploadFileInputEl = e.target;
     const file = e.target.files?.[0];
     this.uploadFile = file || null;
     if (file && !this.uploadTitle) {
@@ -453,6 +456,16 @@ export default class MediaGalleryPage extends Component {
     this.uploadTagsSelected = [];
     this.uploadTagsQuery = "";
     this.uploadTagsOpen = false;
+
+    // Clear native input value so selecting the same file again triggers change
+    // and so the browser UI doesn't keep a stale filename.
+    try {
+      if (this._uploadFileInputEl) {
+        this._uploadFileInputEl.value = "";
+      }
+    } catch {
+      // ignore
+    }
   }
 
   // -----------------------
