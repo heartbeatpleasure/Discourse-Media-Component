@@ -630,6 +630,38 @@ export default class MediaGalleryPage extends Component {
     }
   }
 
+  // Called when <img> is inserted; needed for cached images.
+  // The browser may complete the load before Ember attaches the "load" listener,
+  // leaving the UI stuck in "Loading thumbnail…".
+  @action
+  onThumbInsert(item, element) {
+    if (!item || item._thumbLoaded || item._thumbFailed) return;
+
+    const img = element;
+    if (!img) return;
+
+    // If the image is already loaded from cache, `load` may never fire for us.
+    if (img.complete && img.naturalWidth > 0) {
+      const wasInFlight = !!item._thumbInFlight;
+      item._thumbLoaded = true;
+      item._thumbInFlight = false;
+      item._thumbQueued = false;
+
+      if (wasInFlight) {
+        this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+      }
+
+      this.items = [...this.items];
+      this._pumpThumbQueue();
+      return;
+    }
+
+    // If it's "complete" but broken (naturalWidth = 0), kick the retry path.
+    if (img.complete && img.naturalWidth === 0) {
+      this.onThumbError(item);
+    }
+  }
+
   // Called by <img onload>
   @action
   onThumbLoad(item) {

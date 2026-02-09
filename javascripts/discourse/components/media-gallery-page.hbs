@@ -270,6 +270,7 @@
                     alt=""
                     src={{item._thumbSrc}}
                     decoding="async"
+        {{did-insert (fn this.onThumbInsert item)}}
                     {{on "load" (fn this.onThumbLoad item)}}
                     {{on "error" (fn this.onThumbError item)}}
                   />
