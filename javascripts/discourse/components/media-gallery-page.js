@@ -9,7 +9,6 @@ function normalizeListSetting(raw) {
   if (raw == null) return [];
   if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
 
-  // Discourse "list" site settings often come through as pipe-separated strings.
   const str = String(raw);
   return str
     .split(/[\|\n,]/g)
@@ -17,15 +16,22 @@ function normalizeListSetting(raw) {
     .filter(Boolean);
 }
 
-function normalizeTagsFromText(input) {
-  return (input || "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
 function stripExt(filename) {
   return filename?.replace(/\.[^/.]+$/, "") || filename;
+}
+
+function uniqStrings(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const v of arr || []) {
+    const s = String(v || "").trim();
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
 }
 
 export default class MediaGalleryPage extends Component {
@@ -47,9 +53,12 @@ export default class MediaGalleryPage extends Component {
   @tracked q = "";
   @tracked mediaType = "";
   @tracked gender = "";
-  @tracked tagsRaw = "";
-  @tracked tagsSelected = [];
   @tracked status = ""; // only for "mine"
+
+  // Tags (filters) - multi-select UI state
+  @tracked tagsSelected = [];
+  @tracked filterTagsQuery = "";
+  @tracked filterTagsOpen = false;
 
   // Upload UI
   @tracked showUpload = false;
@@ -57,9 +66,12 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadFile = null;
   @tracked uploadTitle = "";
   @tracked uploadDescription = "";
-  @tracked uploadTagsRaw = "";
-  @tracked uploadTagsSelected = [];
   @tracked uploadGender = "";
+
+  // Tags (upload) - multi-select UI state
+  @tracked uploadTagsSelected = [];
+  @tracked uploadTagsQuery = "";
+  @tracked uploadTagsOpen = false;
 
   // Preview modal
   @tracked previewOpen = false;
@@ -69,15 +81,25 @@ export default class MediaGalleryPage extends Component {
   @tracked previewRetryCount = 0;
 
   _pollTimer = null;
+  _boundDocClick = null;
 
   constructor() {
     super(...arguments);
+
+    this._boundDocClick = (e) => this.onDocumentClick(e);
+    document.addEventListener("click", this._boundDocClick);
+
     this.refresh();
   }
 
   willDestroy() {
     super.willDestroy(...arguments);
     this.stopPolling();
+
+    if (this._boundDocClick) {
+      document.removeEventListener("click", this._boundDocClick);
+      this._boundDocClick = null;
+    }
   }
 
   get isMine() {
@@ -102,14 +124,55 @@ export default class MediaGalleryPage extends Component {
     return normalizeListSetting(raw);
   }
 
-  get filterTags() {
-    if (this.allowedTags.length) return this.tagsSelected;
-    return normalizeTagsFromText(this.tagsRaw);
+  // -----------------------
+  // Multi-select suggestions
+  // -----------------------
+  get filterTagSuggestions() {
+    const q = (this.filterTagsQuery || "").trim().toLowerCase();
+    const selected = new Set((this.tagsSelected || []).map((t) => String(t).toLowerCase()));
+
+    if (this.allowedTags.length) {
+      return this.allowedTags
+        .filter((t) => !selected.has(String(t).toLowerCase()))
+        .filter((t) => (q ? String(t).toLowerCase().includes(q) : true))
+        .slice(0, 50);
+    }
+
+    // Free entry mode: suggest adding the query
+    if (!q) return [];
+    if (selected.has(q)) return [];
+    return [this.filterTagsQuery.trim()];
   }
 
-  get uploadTags() {
-    if (this.allowedTags.length) return this.uploadTagsSelected;
-    return normalizeTagsFromText(this.uploadTagsRaw);
+  get uploadTagSuggestions() {
+    const q = (this.uploadTagsQuery || "").trim().toLowerCase();
+    const selected = new Set((this.uploadTagsSelected || []).map((t) => String(t).toLowerCase()));
+
+    if (this.allowedTags.length) {
+      return this.allowedTags
+        .filter((t) => !selected.has(String(t).toLowerCase()))
+        .filter((t) => (q ? String(t).toLowerCase().includes(q) : true))
+        .slice(0, 50);
+    }
+
+    if (!q) return [];
+    if (selected.has(q)) return [];
+    return [this.uploadTagsQuery.trim()];
+  }
+
+  // -----------------------
+  // Document click (close menus)
+  // -----------------------
+  onDocumentClick(e) {
+    const el = e?.target;
+    if (!el?.closest) return;
+
+    // Close when clicking outside any of the multi-select containers
+    const inside = el.closest("[data-hb-ms]");
+    if (!inside) {
+      this.filterTagsOpen = false;
+      this.uploadTagsOpen = false;
+    }
   }
 
   // -----------------------
@@ -132,7 +195,6 @@ export default class MediaGalleryPage extends Component {
     if (!hasInFlight) return;
 
     this._pollTimer = setTimeout(() => {
-      // Silent refresh to avoid flicker/spinner while polling.
       this.refresh({ silent: true });
     }, 4000);
   }
@@ -168,13 +230,7 @@ export default class MediaGalleryPage extends Component {
   @action setQ(e) { this.q = e.target.value; }
   @action setMediaType(e) { this.mediaType = e.target.value; }
   @action setGender(e) { this.gender = e.target.value; }
-  @action setTagsRaw(e) { this.tagsRaw = e.target.value; }
   @action setStatus(e) { this.status = e.target.value; }
-
-  @action
-  setTagsSelected(e) {
-    this.tagsSelected = Array.from(e.target.selectedOptions || []).map((o) => o.value);
-  }
 
   @action
   setPerPage(e) {
@@ -187,8 +243,9 @@ export default class MediaGalleryPage extends Component {
     this.q = "";
     this.mediaType = "";
     this.gender = "";
-    this.tagsRaw = "";
     this.tagsSelected = [];
+    this.filterTagsQuery = "";
+    this.filterTagsOpen = false;
     this.status = "";
     this.page = 1;
     this.refresh();
@@ -201,7 +258,62 @@ export default class MediaGalleryPage extends Component {
   }
 
   // -----------------------
-  // Upload
+  // Filter tags multi-select actions
+  // -----------------------
+  @action
+  openFilterTags() {
+    this.filterTagsOpen = true;
+  }
+
+  @action
+  onFilterTagsQuery(e) {
+    this.filterTagsQuery = e.target.value;
+    this.filterTagsOpen = true;
+  }
+
+  @action
+  addFilterTag(tag) {
+    const t = String(tag || "").trim();
+    if (!t) return;
+
+    this.tagsSelected = uniqStrings([...(this.tagsSelected || []), t]);
+    this.filterTagsQuery = "";
+    this.filterTagsOpen = true;
+  }
+
+  @action
+  removeFilterTag(tag, ev) {
+    ev?.stopPropagation?.();
+    const t = String(tag || "").trim().toLowerCase();
+    this.tagsSelected = (this.tagsSelected || []).filter((x) => String(x).toLowerCase() !== t);
+  }
+
+  @action
+  onFilterTagsKeydown(e) {
+    if (e.key === "Escape") {
+      this.filterTagsOpen = false;
+      return;
+    }
+
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+
+    const candidate = (this.filterTagsQuery || "").trim();
+    if (!candidate) return;
+
+    // If allowedTags exists, only allow exact match additions via Enter
+    if (this.allowedTags.length) {
+      const match = this.allowedTags.find((x) => String(x).toLowerCase() === candidate.toLowerCase());
+      if (match) this.addFilterTag(match);
+      return;
+    }
+
+    // Free entry mode
+    this.addFilterTag(candidate);
+  }
+
+  // -----------------------
+  // Upload actions
   // -----------------------
   @action
   toggleUpload() {
@@ -219,24 +331,75 @@ export default class MediaGalleryPage extends Component {
 
   @action setUploadTitle(e) { this.uploadTitle = e.target.value; }
   @action setUploadDescription(e) { this.uploadDescription = e.target.value; }
-  @action setUploadTagsRaw(e) { this.uploadTagsRaw = e.target.value; }
   @action setUploadGender(e) { this.uploadGender = e.target.value; }
-
-  @action
-  setUploadTagsSelected(e) {
-    this.uploadTagsSelected = Array.from(e.target.selectedOptions || []).map((o) => o.value);
-  }
 
   @action
   resetUploadForm() {
     this.uploadFile = null;
     this.uploadTitle = "";
     this.uploadDescription = "";
-    this.uploadTagsRaw = "";
-    this.uploadTagsSelected = [];
     this.uploadGender = "";
+    this.uploadTagsSelected = [];
+    this.uploadTagsQuery = "";
+    this.uploadTagsOpen = false;
   }
 
+  // -----------------------
+  // Upload tags multi-select actions
+  // -----------------------
+  @action
+  openUploadTags() {
+    this.uploadTagsOpen = true;
+  }
+
+  @action
+  onUploadTagsQuery(e) {
+    this.uploadTagsQuery = e.target.value;
+    this.uploadTagsOpen = true;
+  }
+
+  @action
+  addUploadTag(tag) {
+    const t = String(tag || "").trim();
+    if (!t) return;
+
+    this.uploadTagsSelected = uniqStrings([...(this.uploadTagsSelected || []), t]);
+    this.uploadTagsQuery = "";
+    this.uploadTagsOpen = true;
+  }
+
+  @action
+  removeUploadTag(tag, ev) {
+    ev?.stopPropagation?.();
+    const t = String(tag || "").trim().toLowerCase();
+    this.uploadTagsSelected = (this.uploadTagsSelected || []).filter((x) => String(x).toLowerCase() !== t);
+  }
+
+  @action
+  onUploadTagsKeydown(e) {
+    if (e.key === "Escape") {
+      this.uploadTagsOpen = false;
+      return;
+    }
+
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+
+    const candidate = (this.uploadTagsQuery || "").trim();
+    if (!candidate) return;
+
+    if (this.allowedTags.length) {
+      const match = this.allowedTags.find((x) => String(x).toLowerCase() === candidate.toLowerCase());
+      if (match) this.addUploadTag(match);
+      return;
+    }
+
+    this.addUploadTag(candidate);
+  }
+
+  // -----------------------
+  // Upload flow
+  // -----------------------
   @action
   async submitUpload() {
     this.noticeMessage = null;
@@ -252,7 +415,6 @@ export default class MediaGalleryPage extends Component {
       return;
     }
 
-    // Gender is required for upload (per your UX requirement).
     if (!this.uploadGender) {
       this.errorMessage = "Please select a gender.";
       return;
@@ -288,10 +450,10 @@ export default class MediaGalleryPage extends Component {
 
       if (this.uploadDescription?.trim()) payload.description = this.uploadDescription.trim();
 
-      const tags = this.uploadTags;
+      const tags = uniqStrings(this.uploadTagsSelected || []);
       if (tags.length) payload.tags = tags;
 
-      const createRes = await ajax("/media", { type: "POST", data: payload });
+      await ajax("/media", { type: "POST", data: payload });
 
       this.noticeMessage = I18n.t("media_gallery.uploading_notice");
       this.resetUploadForm();
@@ -302,11 +464,7 @@ export default class MediaGalleryPage extends Component {
       await this.refresh();
 
       // Ensure polling starts immediately after creating an item.
-      // (Processing can take a while; this keeps the UI updating without manual refresh.)
       this.schedulePollingIfNeeded();
-
-      // Optional: if createRes has public_id/status, we could highlight it later.
-      void createRes;
     } catch (e) {
       const status = e?.jqXHR?.status;
       if (status === 404 || status === 403) {
@@ -327,14 +485,10 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   @action
   onThumbError(item, ev) {
-    // Avoid infinite error loops
     if (!item || item._thumbFailed) return;
     item._thumbFailed = true;
-
-    // Force rerender
     this.items = [...this.items];
 
-    // Also stop the browser from retrying endlessly
     try {
       if (ev?.target) ev.target.src = "";
     } catch {
@@ -415,8 +569,6 @@ export default class MediaGalleryPage extends Component {
 
   @action
   async onPlayerError() {
-    // Fix: sometimes the first token/stream fetch can fail while the file becomes available.
-    // Retry by requesting a fresh token a few times.
     if (!this.previewOpen || !this.previewItem?.public_id) return;
 
     if (this.previewRetryCount >= 3) return;
@@ -425,7 +577,7 @@ export default class MediaGalleryPage extends Component {
     try {
       await this.fetchPreviewStreamUrl({ resetRetry: false });
     } catch {
-      // Ignore; user can close/open if needed.
+      // ignore
     }
   }
 
@@ -458,7 +610,7 @@ export default class MediaGalleryPage extends Component {
         per_page: this.perPage,
       };
 
-      const tags = this.filterTags;
+      const tags = uniqStrings(this.tagsSelected || []);
       if (this.mediaType) data.media_type = this.mediaType;
       if (this.gender) data.gender = this.gender;
       if (tags.length) data.tags = tags;
@@ -486,7 +638,6 @@ export default class MediaGalleryPage extends Component {
       this.perPage = res?.per_page || this.perPage;
       this.total = total;
 
-      // Poll if needed (only on My uploads with in-flight items)
       this.schedulePollingIfNeeded();
     } catch (e) {
       const status = e?.jqXHR?.status;

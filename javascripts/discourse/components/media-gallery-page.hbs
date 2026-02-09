@@ -62,23 +62,51 @@
           <textarea rows="5" value={{this.uploadDescription}} {{on "input" this.setUploadDescription}}></textarea>
         </div>
 
-        <div class="hb-field">
+        <div class="hb-field hb-field--span2">
           <label class="form-label">Tags</label>
 
-          {{#if (gt this.allowedTags.length 0)}}
-            <select multiple size="6" {{on "change" this.setUploadTagsSelected}}>
-              {{#each this.allowedTags as |t|}}
-                <option value={{t}} selected={{includes this.uploadTagsSelected t}}>{{t}}</option>
-              {{/each}}
-            </select>
-          {{else}}
-            <input
-              type="text"
-              placeholder="tag1, tag2"
-              value={{this.uploadTagsRaw}}
-              {{on "input" this.setUploadTagsRaw}}
-            />
-          {{/if}}
+          <div class="hb-multi-select" data-hb-ms="upload">
+            <div class="hb-multi-select__control">
+              <div class="hb-multi-select__pills">
+                {{#each this.uploadTagsSelected as |t|}}
+                  <span class="hb-multi-select__pill">
+                    <span class="hb-multi-select__pill-text">{{t}}</span>
+                    <button type="button" class="hb-multi-select__remove" {{on "click" (fn this.removeUploadTag t)}}>
+                      ×
+                    </button>
+                  </span>
+                {{/each}}
+
+                <input
+                  class="hb-multi-select__input"
+                  type="text"
+                  placeholder="Search…"
+                  value={{this.uploadTagsQuery}}
+                  {{on "focus" this.openUploadTags}}
+                  {{on "input" this.onUploadTagsQuery}}
+                  {{on "keydown" this.onUploadTagsKeydown}}
+                />
+              </div>
+
+              <button type="button" class="hb-multi-select__toggle" {{on "click" this.openUploadTags}} aria-label="Open">
+                +
+              </button>
+            </div>
+
+            {{#if this.uploadTagsOpen}}
+              <div class="hb-multi-select__menu">
+                {{#if (gt this.uploadTagSuggestions.length 0)}}
+                  {{#each this.uploadTagSuggestions as |opt|}}
+                    <div class="hb-multi-select__option" {{on "mousedown" (fn this.addUploadTag opt)}}>
+                      {{opt}}
+                    </div>
+                  {{/each}}
+                {{else}}
+                  <div class="hb-multi-select__empty">No matches</div>
+                {{/if}}
+              </div>
+            {{/if}}
+          </div>
         </div>
 
         <div class="hb-field">
@@ -150,20 +178,48 @@
       <div class="hb-field hb-field--span2">
         <label class="form-label">Tags</label>
 
-        {{#if (gt this.allowedTags.length 0)}}
-          <select multiple size="6" {{on "change" this.setTagsSelected}}>
-            {{#each this.allowedTags as |t|}}
-              <option value={{t}} selected={{includes this.tagsSelected t}}>{{t}}</option>
-            {{/each}}
-          </select>
-        {{else}}
-          <input
-            type="text"
-            placeholder="tag1, tag2"
-            value={{this.tagsRaw}}
-            {{on "input" this.setTagsRaw}}
-          />
-        {{/if}}
+        <div class="hb-multi-select" data-hb-ms="filter">
+          <div class="hb-multi-select__control">
+            <div class="hb-multi-select__pills">
+              {{#each this.tagsSelected as |t|}}
+                <span class="hb-multi-select__pill">
+                  <span class="hb-multi-select__pill-text">{{t}}</span>
+                  <button type="button" class="hb-multi-select__remove" {{on "click" (fn this.removeFilterTag t)}}>
+                    ×
+                  </button>
+                </span>
+              {{/each}}
+
+              <input
+                class="hb-multi-select__input"
+                type="text"
+                placeholder="Search…"
+                value={{this.filterTagsQuery}}
+                {{on "focus" this.openFilterTags}}
+                {{on "input" this.onFilterTagsQuery}}
+                {{on "keydown" this.onFilterTagsKeydown}}
+              />
+            </div>
+
+            <button type="button" class="hb-multi-select__toggle" {{on "click" this.openFilterTags}} aria-label="Open">
+              +
+            </button>
+          </div>
+
+          {{#if this.filterTagsOpen}}
+            <div class="hb-multi-select__menu">
+              {{#if (gt this.filterTagSuggestions.length 0)}}
+                {{#each this.filterTagSuggestions as |opt|}}
+                  <div class="hb-multi-select__option" {{on "mousedown" (fn this.addFilterTag opt)}}>
+                    {{opt}}
+                  </div>
+                {{/each}}
+              {{else}}
+                <div class="hb-multi-select__empty">No matches</div>
+              {{/if}}
+            </div>
+          {{/if}}
+        </div>
       </div>
 
       {{#if this.isMine}}
