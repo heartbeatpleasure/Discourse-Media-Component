@@ -38,14 +38,11 @@ function isProcessingStatus(status) {
   return status === "queued" || status === "processing";
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 // Thumbnail loader limits (to avoid Nginx 429)
-const THUMB_MAX_CONCURRENCY = 6;
 const THUMB_RETRY_LIMIT = 3;
 const THUMB_RETRY_BASE_DELAY_MS = 500;
+const TRANSPARENT_GIF =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 export default class MediaGalleryPage extends Component {
   // Tabs
@@ -103,9 +100,9 @@ export default class MediaGalleryPage extends Component {
 
   _destroyed = false;
 
-  // Thumbnail queue state
-  _thumbQueue = [];
-  _thumbInFlight = 0;
+  // Thumbnail retry/failure state (keyed by public_id)
+  _thumbRetryById = new Map();
+  _thumbFailures = new Set();
 
   constructor() {
     super(...arguments);
@@ -560,223 +557,88 @@ export default class MediaGalleryPage extends Component {
   }
 
   // -----------------------
-  // Thumbnails (concurrency limited, using DOM <img> load/error events)
+  // Thumbnails
   //
-  // Why this approach:
-  // - Preloading with `new Image()` can load resources (visible in DevTools)
-  //   without reliably flipping UI state in some Discourse/Ember setups,
-  //   leaving the UI stuck on “Loading thumbnail…”.
-  // - Here we control *when* an <img> gets a `src` (max concurrency) and we
-  //   rely on the actual DOM `load`/`error` events to mark the thumbnail as
-  //   loaded/failed. That keeps the UI and network in sync.
+  // "Outside the box" fix:
+  // The previous implementation preloaded thumbnails with `new Image()` and
+  // then tried to mirror that state into the template. In practice (especially
+  // with list refreshes / polling) the UI state can get out of sync: the network
+  // shows thumbnails downloaded, but the UI keeps showing the placeholder.
+  //
+  // To make this rock-solid:
+  // - Render <img> directly from `thumbnail_url` (browser handles caching).
+  // - Use native `loading="lazy"` to avoid request floods.
+  // - On errors (incl. 429), retry with exponential backoff a few times.
+  // - After retry limit, fall back to the placeholder (no broken-image icon).
+  //
+  // Retry/failure state is stored by `public_id` so it survives refresh().
   // -----------------------
-  _resetThumbQueue() {
-    this._thumbQueue = [];
-    this._thumbInFlight = 0;
-  }
-
-  _primeThumbState(newItems) {
-    // Keep previous UI thumb state if we have it
-    const prevById = new Map((this.items || []).map((it) => [it?.public_id, it]));
-
-    for (const it of newItems) {
-      const prev = prevById.get(it?.public_id);
-      it._thumbSrc = prev?._thumbSrc || null;
-      it._thumbLoaded = !!prev?._thumbLoaded;
-      it._thumbFailed = !!prev?._thumbFailed;
-      it._thumbRetries = prev?._thumbRetries || 0;
-      it._thumbQueued = false;
-      // Preserve in-flight marker across refresh() calls. refresh() can run while
-      // thumbs are still loading; if we drop this flag, the subsequent DOM
-      // load/error events may be ignored and the UI can get stuck on the
-      // placeholder.
-      it._thumbInFlight = !!prev?._thumbInFlight;
+  _applyThumbFailureState(items) {
+    for (const it of items || []) {
+      const id = it?.public_id;
+      it._thumbFailed = !!(id && this._thumbFailures.has(id));
     }
   }
 
-  _enqueueThumbLoadsForCurrentItems() {
-    // Rebuild queue and in-flight counter from current items.
-    // refresh() may be called while thumbnails are still loading; we must not
-    // lose track of those in-flight requests, or we can exceed concurrency and
-    // also miss the UI transition away from the placeholder.
-    this._thumbQueue = [];
-    this._thumbInFlight = 0;
-
-    for (const item of this.items || []) {
-      if (item?._thumbInFlight) {
-        this._thumbInFlight += 1;
-      }
-    }
-
-    // Queue thumbnails for all ready items (concurrency limited)
-    for (const item of this.items || []) {
-      this._enqueueThumbItem(item);
-    }
-
-    this._pumpThumbQueue();
-  }
-
-  _enqueueThumbItem(item) {
-    if (!item) return;
-    if (item.status !== "ready") return;
-    if (item._thumbFailed) return;
-    if (item._thumbLoaded) return;
-    // If the <img> already has a src, let it finish (and rely on load/insert)
-    // rather than starting a new request on every refresh.
-    if (item._thumbSrc) return;
-    if (!item.thumbnail_url) return;
-    if (item._thumbQueued) return;
-    if (item._thumbInFlight) return;
-
-    item._thumbQueued = true;
-    this._thumbQueue.push(item);
-  }
-
-  // When the list refreshes while images are still loading, the `item` object
-  // captured by template modifiers/events can become stale (no longer present
-  // in `this.items`). Always resolve by public_id before mutating state.
-  _resolveCurrentItem(item) {
-    const id = item?.public_id;
-    if (!id) return null;
-    return (this.items || []).find((x) => x?.public_id === id) || null;
-  }
-
-  _pumpThumbQueue() {
-    while (this._thumbInFlight < THUMB_MAX_CONCURRENCY && this._thumbQueue.length > 0) {
-      const item = this._thumbQueue.shift();
-      if (!item || item._thumbLoaded || item._thumbFailed || !item.thumbnail_url) {
-        continue;
-      }
-
-      this._thumbInFlight += 1;
-
-      item._thumbQueued = false;
-      item._thumbInFlight = true;
-      item._thumbSrc = item.thumbnail_url;
-
-      // Force rerender (Glimmer doesn't track deep mutations reliably)
-      this.items = [...this.items];
-    }
-  }
-
-  // Called when <img> is inserted; needed for cached images.
-  // The browser may complete the load before Ember attaches the "load" listener,
-  // leaving the UI stuck in "Loading thumbnail…".
-  @action
-  onThumbInsert(item, element) {
-    if (this._destroyed) return;
-    const current = this._resolveCurrentItem(item);
-    if (!current) return;
-    if (current._thumbLoaded || current._thumbFailed) return;
-
-    const img = element;
-    if (!img) return;
-
-    const tryMark = () => {
-      if (this._destroyed) return;
-      const it = this._resolveCurrentItem(current);
-      if (!it || it._thumbLoaded || it._thumbFailed) return;
-
-      // Cached-image race: `load` can fire before Ember attaches listeners.
-      // Also, some browsers update `complete/naturalWidth` on the next tick.
-      if (img.complete && img.naturalWidth > 0) {
-        const wasInFlight = !!it._thumbInFlight;
-        it._thumbLoaded = true;
-        it._thumbInFlight = false;
-        it._thumbQueued = false;
-        if (wasInFlight) {
-          this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
-        }
-        this.items = [...this.items];
-        this._pumpThumbQueue();
-        return;
-      }
-
-      // Broken resource (HTML/429/etc.)
-      if (img.complete && img.naturalWidth === 0) {
-        this.onThumbError(it);
-      }
-    };
-
-    // Immediate + next ticks to cover cache/attachment races
-    tryMark();
-    Promise.resolve().then(tryMark);
-    setTimeout(tryMark, 0);
-    requestAnimationFrame(tryMark);
-    setTimeout(tryMark, 200);
-  }
-
-  // Called by <img onload>
   @action
   onThumbLoad(item) {
-    if (this._destroyed) return;
-    const it = this._resolveCurrentItem(item);
-    if (!it || it._thumbFailed) return;
+    const id = item?.public_id;
+    if (!id) return;
 
-    const wasInFlight = !!it._thumbInFlight;
-    it._thumbLoaded = true;
-    it._thumbInFlight = false;
-    it._thumbQueued = false;
-
-    if (wasInFlight) {
-      this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
+    this._thumbRetryById.delete(id);
+    if (this._thumbFailures.has(id)) {
+      this._thumbFailures.delete(id);
+      const current = (this.items || []).find((x) => x?.public_id === id);
+      if (current && current._thumbFailed) {
+        current._thumbFailed = false;
+        this.items = [...this.items];
+      }
     }
-    this.items = [...this.items];
-    this._pumpThumbQueue();
   }
 
   // Called by <img onerror>
   @action
   onThumbError(item, ev) {
-    if (this._destroyed) return;
-    const it = this._resolveCurrentItem(item);
-    if (!it || it._thumbFailed) return;
+    const id = item?.public_id;
+    const base = ev?.target?.dataset?.thumbBase || item?.thumbnail_url;
+    if (!id || !base) return;
 
-    const wasInFlight = !!it._thumbInFlight;
+    const prev = this._thumbRetryById.get(id) || 0;
+    const attempt = prev + 1;
+    this._thumbRetryById.set(id, attempt);
 
-    const attempt = parseInt(it._thumbRetries || 0, 10) || 0;
-    const nextAttempt = attempt + 1;
-    it._thumbRetries = nextAttempt;
-
-    // Always clear src so the broken image never flashes
-    it._thumbSrc = null;
-    it._thumbLoaded = false;
-
-    // Release slot immediately (lets other thumbs continue) and re-queue after delay
-    it._thumbInFlight = false;
-    it._thumbQueued = false;
-    if (wasInFlight) {
-      this._thumbInFlight = Math.max(0, this._thumbInFlight - 1);
-    }
-    this.items = [...this.items];
-
-    if (nextAttempt <= THUMB_RETRY_LIMIT) {
-      const delay = THUMB_RETRY_BASE_DELAY_MS * Math.pow(2, nextAttempt - 1);
-      setTimeout(() => {
-        // Component might have been destroyed / items changed
-        if (this._destroyed) return;
-        const current = this._resolveCurrentItem(it);
-        if (!current) return;
-        if (current._thumbFailed || current._thumbLoaded) return;
-        if (current.status !== "ready" || !current.thumbnail_url) return;
-
-        this._enqueueThumbItem(current);
-        this._pumpThumbQueue();
-      }, delay);
-      return;
-    }
-
-    // Give up
-    it._thumbFailed = true;
-    this.items = [...this.items];
-
+    // Hide the broken-image icon immediately
     try {
-      if (ev?.target) ev.target.src = "";
+      if (ev?.target) ev.target.src = TRANSPARENT_GIF;
     } catch {
       // ignore
     }
 
-    this._pumpThumbQueue();
+    if (attempt <= THUMB_RETRY_LIMIT) {
+      const delay = THUMB_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      setTimeout(() => {
+        if (this._destroyed) return;
+
+        // Try again on the *same* DOM element (if it still exists)
+        try {
+          if (!ev?.target) return;
+          const sep = base.includes("?") ? "&" : "?";
+          ev.target.src = `${base}${sep}retry=${Date.now()}`;
+        } catch {
+          // ignore
+        }
+      }, delay);
+      return;
+    }
+
+    // Give up: mark failed for this id so refresh() keeps showing placeholder
+    this._thumbFailures.add(id);
+    this._thumbRetryById.delete(id);
+    const current = (this.items || []).find((x) => x?.public_id === id);
+    if (current) {
+      current._thumbFailed = true;
+      this.items = [...this.items];
+    }
   }
 
   // -----------------------
@@ -914,16 +776,15 @@ export default class MediaGalleryPage extends Component {
         });
       }
 
-      // Prime thumbnail state and then enqueue loads
-      this._primeThumbState(media);
+      // Apply thumb failure state that survives refresh()
+      this._applyThumbFailureState(media);
 
       this.items = media;
       this.page = res?.page || this.page;
       this.perPage = res?.per_page || this.perPage;
       this.total = total;
 
-      // Start thumbnail loading (this is what fixes "stuck on Loading thumbnail…")
-      this._enqueueThumbLoadsForCurrentItems();
+      // Thumbnails are rendered directly from `thumbnail_url`.
 
       this.schedulePollingIfNeeded();
     } catch (e) {
