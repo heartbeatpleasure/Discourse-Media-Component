@@ -155,6 +155,21 @@ export default class MediaGalleryPage extends Component {
     this.loadMediaConfig();
   }
 
+  async loadMediaConfig() {
+  try {
+    const res = await ajax("/media/config");
+    this.watermarkConfig = res?.watermark || null;
+
+    // defaults for the upload UI
+    if (this.watermarkConfig?.enabled) {
+      this.uploadWatermarkEnabled = true;
+      this.uploadWatermarkPresetId = this.watermarkConfig.default_preset_id || "";
+    }
+  } catch (e) {
+    this.watermarkConfig = null;
+  }
+}
+
   willDestroy() {
     super.willDestroy(...arguments);
     this.stopPolling();
