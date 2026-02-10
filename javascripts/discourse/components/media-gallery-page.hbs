@@ -315,6 +315,17 @@
               <div class="sub">
                 <span>@{{item.uploader_username}}</span>
                 <span>{{item.media_type}}</span>
+                {{#if item.duration_seconds}}
+                  <span>{{this.formatDuration item.duration_seconds}}</span>
+                {{/if}}
+              </div>
+
+              <div class="sub sub--muted">
+                {{#if item.created_at}}
+                  <span>{{this.formatCreatedAt item.created_at}}</span>
+                {{/if}}
+                <span>·</span>
+                <span>{{item.views_count}} {{i18n "media_gallery.views"}}</span>
               </div>
 
               <div class="badges">

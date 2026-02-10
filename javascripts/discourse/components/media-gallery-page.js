@@ -38,6 +38,40 @@ function isProcessingStatus(status) {
   return status === "queued" || status === "processing";
 }
 
+
+function formatDurationSeconds(totalSeconds) {
+  const n = Number(totalSeconds);
+  if (!Number.isFinite(n) || n <= 0) return null;
+
+  const s = Math.max(0, Math.floor(n));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }
+
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function formatDateShort(iso) {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+
+    const locale = I18n?.locale || document?.documentElement?.lang || undefined;
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    }).format(d);
+  } catch (e) {
+    return null;
+  }
+}
+
 // Thumbnail loader limits (to avoid Nginx 429)
 const THUMB_RETRY_LIMIT = 3;
 const THUMB_RETRY_BASE_DELAY_MS = 500;
@@ -151,6 +185,18 @@ export default class MediaGalleryPage extends Component {
     return normalizeListSetting(raw);
   }
 
+
+
+  // -----------------------
+  // Formatting (UI)
+  // -----------------------
+  formatDuration(seconds) {
+    return formatDurationSeconds(seconds);
+  }
+
+  formatCreatedAt(iso) {
+    return formatDateShort(iso);
+  }
   // -----------------------
   // Multi-select suggestions
   // -----------------------
