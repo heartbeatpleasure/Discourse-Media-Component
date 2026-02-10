@@ -124,6 +124,41 @@
           </div>
         </div>
 
+      {{#if this.watermarkUiVisible}}
+        <div class="hb-field hb-field--span2">
+          <label class="form-label">{{i18n "media_gallery.watermark.label"}}</label>
+
+        <div class="hb-watermark-row">
+          {{#if this.watermarkCanToggle}}
+          <label class="hb-checkbox">
+            <input
+              type="checkbox"
+              checked={{this.uploadWatermarkEnabled}}
+             {{on "change" this.toggleUploadWatermark}}
+            />
+          <span>{{i18n "media_gallery.watermark.apply"}}</span>
+        </label>
+      {{/if}}
+
+      {{#if this.watermarkCanChoosePreset}}
+        <div class="hb-watermark-preset">
+          <label class="form-label">{{i18n "media_gallery.watermark.preset"}}</label>
+          <select
+            value={{this.uploadWatermarkPresetId}}
+            disabled={{and this.watermarkCanToggle (not this.uploadWatermarkEnabled)}}
+            {{on "change" this.setUploadWatermarkPreset}}
+          >
+            <option value="">{{i18n "media_gallery.watermark.preset_default"}}</option>
+            {{#each this.watermarkPresets as |p|}}
+              <option value={{p.id}}>{{p.label}}</option>
+            {{/each}}
+          </select>
+        </div>
+      {{/if}}
+    </div>
+  </div>
+{{/if}}
+
         <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.gender_label"}}</label>
           <select {{on "change" this.setUploadGender}} value={{this.uploadGender}}>

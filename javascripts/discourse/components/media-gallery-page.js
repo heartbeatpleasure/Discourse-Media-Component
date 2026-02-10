@@ -111,6 +111,9 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadTitle = "";
   @tracked uploadDescription = "";
   @tracked uploadGender = "";
+  @tracked watermarkConfig = null;
+  @tracked uploadWatermarkEnabled = true;
+  @tracked uploadWatermarkPresetId = "";
 
   // Tags (upload) - multi-select UI state
   @tracked uploadTagsSelected = [];
@@ -149,6 +152,7 @@ export default class MediaGalleryPage extends Component {
     document.addEventListener("click", this._boundDocClick);
 
     this.refresh();
+    this.loadMediaConfig();
   }
 
   willDestroy() {
@@ -185,7 +189,31 @@ export default class MediaGalleryPage extends Component {
     return normalizeListSetting(raw);
   }
 
+    get isVideoUploadSelected() {
+    const f = this.uploadFile;
+    if (!f) return false;
+    const type = String(f.type || "").toLowerCase();
+    if (type.startsWith("video/")) return true;
+    const name = String(f.name || "").toLowerCase();
+    return /\.(mp4|m4v|webm|mkv)$/i.test(name);
+  }
 
+  get watermarkUiVisible() {
+    return !!(this.watermarkConfig?.enabled && this.isVideoUploadSelected &&
+      (this.watermarkConfig.user_can_toggle || this.watermarkConfig.user_can_choose_preset));
+  }
+
+  get watermarkCanToggle() {
+    return !!(this.watermarkConfig?.enabled && this.watermarkConfig.user_can_toggle);
+  }
+
+  get watermarkCanChoosePreset() {
+    return !!(this.watermarkConfig?.enabled && this.watermarkConfig.user_can_choose_preset);
+  }
+
+  get watermarkPresets() {
+    return this.watermarkConfig?.presets || [];
+  }
 
   // -----------------------
   // Formatting (UI)
@@ -378,6 +406,19 @@ export default class MediaGalleryPage extends Component {
     this.page = this.page + 1;
     this.refresh();
   }
+  
+  // -----------------------
+  // watermark
+  // -----------------------
+  @action
+  toggleUploadWatermark(e) {
+    this.uploadWatermarkEnabled = !!e?.target?.checked;
+  }
+
+  @action
+  setUploadWatermarkPreset(e) {
+    this.uploadWatermarkPresetId = String(e?.target?.value || "");
+  }
 
   // -----------------------
   // Filters
@@ -503,6 +544,14 @@ export default class MediaGalleryPage extends Component {
     this.uploadTagsQuery = "";
     this.uploadTagsOpen = false;
 
+   if (this.watermarkConfig?.enabled) {
+    this.uploadWatermarkEnabled = true;
+    this.uploadWatermarkPresetId = this.watermarkConfig.default_preset_id || "";
+  } else {
+    this.uploadWatermarkEnabled = true;
+    this.uploadWatermarkPresetId = "";
+  }
+
     // Clear native input value so selecting the same file again triggers change
     // and so the browser UI doesn't keep a stale filename.
     try {
@@ -620,6 +669,22 @@ export default class MediaGalleryPage extends Component {
 
       const tags = uniqStrings(this.uploadTagsSelected || []);
       if (tags.length) payload.tags = tags;
+
+
+     // Watermark payload (only for video uploads, and only if enabled server-side)
+    if (this.watermarkConfig?.enabled && this.isVideoUploadSelected) {
+      if (this.watermarkCanToggle) {
+        payload.watermark_enabled = this.uploadWatermarkEnabled;
+      }
+    if (
+      this.watermarkCanChoosePreset &&
+      (this.uploadWatermarkEnabled || !this.watermarkCanToggle)
+  ) {
+    if (this.uploadWatermarkPresetId) {
+      payload.watermark_preset_id = this.uploadWatermarkPresetId;
+    }
+  }
+}
 
       await ajax("/media", { type: "POST", data: payload });
 
