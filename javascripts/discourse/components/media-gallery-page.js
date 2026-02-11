@@ -220,6 +220,20 @@ export default class MediaGalleryPage extends Component {
     return /\.(mp4|m4v|webm|mkv)$/i.test(name);
   }
 
+
+  get isImageUploadSelected() {
+    const f = this.uploadFile;
+    if (!f) return false;
+    const type = String(f.type || "").toLowerCase();
+    if (type.startsWith("image/")) return true;
+    const name = String(f.name || "").toLowerCase();
+    return /\.(jpg|jpeg|png|webp|gif|bmp|tif|tiff|avif)$/i.test(name);
+  }
+
+  get isWatermarkableUploadSelected() {
+    return this.isVideoUploadSelected || this.isImageUploadSelected;
+  }
+
   get isAudioUploadSelected() {
     const f = this.uploadFile;
     if (!f) return false;
@@ -230,7 +244,7 @@ export default class MediaGalleryPage extends Component {
   }
 
   get watermarkUiVisible() {
-    // NOTE: watermarking is currently applied server-side to video outputs.
+    // NOTE: watermarking is currently applied server-side to processed video/image outputs.
     // We still show the controls as soon as watermarking is enabled so admins/users
     // can see the option immediately, even before selecting a file.
     return !!(
@@ -240,10 +254,10 @@ export default class MediaGalleryPage extends Component {
   }
 
   get watermarkUiDisabled() {
-    // If a non-video file is selected, keep the UI visible but disable controls to
-    // avoid the impression watermark will apply to images/audio.
+    // If a non-visual file is selected, keep the UI visible but disable controls to
+    // avoid the impression watermark will apply to audio/other types.
     if (!this.uploadFile) return false;
-    return !this.isVideoUploadSelected;
+    return !this.isWatermarkableUploadSelected;
   }
 
   get watermarkCanToggle() {
@@ -760,7 +774,7 @@ export default class MediaGalleryPage extends Component {
 
     try {
       const fd = new FormData();
-      fd.append("type", "composer");
+      fd.append("upload_type", "composer");
       fd.append("synchronous", "true");
       fd.append("file", this.uploadFile);
 
@@ -788,8 +802,8 @@ export default class MediaGalleryPage extends Component {
       if (tags.length) payload.tags = tags;
 
 
-      // Watermark payload (only for video uploads, and only if enabled server-side)
-      if (this.watermarkConfig?.enabled && this.isVideoUploadSelected) {
+      // Watermark payload (video/images only, and only if enabled server-side)
+      if (this.watermarkConfig?.enabled && this.isWatermarkableUploadSelected) {
         const watermarkEnabled = this.watermarkCanToggle ? !!this.uploadWatermarkEnabled : true;
 
         if (this.watermarkCanToggle) {
