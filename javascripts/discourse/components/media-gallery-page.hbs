@@ -148,7 +148,12 @@
             disabled={{and this.watermarkCanToggle (not this.uploadWatermarkEnabled)}}
             {{on "change" this.setUploadWatermarkPreset}}
           >
-            <option value="">{{i18n "media_gallery.watermark.preset_default"}}</option>
+            <option value="">
+              {{i18n "media_gallery.watermark.preset_default"}}
+              {{#if this.watermarkDefaultLabel}}
+                ({{this.watermarkDefaultLabel}})
+              {{/if}}
+            </option>
             {{#each this.watermarkPresets as |p|}}
               <option value={{p.id}}>{{p.label}}</option>
             {{/each}}

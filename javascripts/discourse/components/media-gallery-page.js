@@ -2,6 +2,7 @@
 import Component from "@glimmer/component";
 import { tracked } from "@glimmer/tracking";
 import { action } from "@ember/object";
+import { inject as service } from "@ember/service";
 import { ajax } from "discourse/lib/ajax";
 import I18n from "I18n";
 
@@ -79,6 +80,8 @@ const TRANSPARENT_GIF =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 export default class MediaGalleryPage extends Component {
+  @service currentUser;
+
   // Tabs
   @tracked activeTab = "all"; // all | mine
 
@@ -156,19 +159,22 @@ export default class MediaGalleryPage extends Component {
   }
 
   async loadMediaConfig() {
-  try {
-    const res = await ajax("/media/config");
-    this.watermarkConfig = res?.watermark || null;
+    try {
+      const res = await ajax("/media/config");
+      this.watermarkConfig = res?.watermark || null;
 
-    // defaults for the upload UI
-    if (this.watermarkConfig?.enabled) {
-      this.uploadWatermarkEnabled = true;
-      this.uploadWatermarkPresetId = this.watermarkConfig.default_preset_id || "";
+      // Defaults for the upload UI
+      if (this.watermarkConfig?.enabled) {
+        this.uploadWatermarkEnabled = true;
+
+        // Newer plugin versions may return default_choice; older versions return default_preset_id.
+        this.uploadWatermarkPresetId =
+          this.watermarkConfig?.default_choice?.value || this.watermarkConfig?.default_preset_id || "";
+      }
+    } catch (e) {
+      this.watermarkConfig = null;
     }
-  } catch (e) {
-    this.watermarkConfig = null;
   }
-}
 
   willDestroy() {
     super.willDestroy(...arguments);
@@ -227,7 +233,72 @@ export default class MediaGalleryPage extends Component {
   }
 
   get watermarkPresets() {
-    return this.watermarkConfig?.presets || [];
+    const wm = this.watermarkConfig || {};
+
+    // Newer plugin versions: `choices` is a simple list of watermark text templates.
+    // Older plugin versions: `presets` is an array of { id, label }.
+    let list = [];
+    if (Array.isArray(wm.choices) && wm.choices.length) {
+      list = wm.choices
+        .map((c) => ({
+          id: String(c?.value || "").trim(),
+          label: String(c?.label || c?.value || "").trim(),
+        }))
+        .filter((x) => x.id);
+    } else if (Array.isArray(wm.presets) && wm.presets.length) {
+      list = wm.presets
+        .map((p) => ({
+          id: String(p?.id || "").trim(),
+          label: String(p?.label || p?.id || "").trim(),
+        }))
+        .filter((x) => x.id);
+    }
+
+    // Make sure placeholders like {{username}} are user-friendly in the UI.
+    const out = [];
+    const seen = new Set();
+    for (const opt of list) {
+      if (!opt?.id) continue;
+      if (seen.has(opt.id)) continue;
+      seen.add(opt.id);
+
+      out.push({
+        id: opt.id,
+        label: this._renderWatermarkDisplay(opt.label || opt.id),
+      });
+    }
+    return out;
+  }
+
+  get watermarkDefaultLabel() {
+    const wm = this.watermarkConfig || {};
+    const direct = wm?.default_choice?.label;
+    if (direct) return this._renderWatermarkDisplay(direct);
+
+    const id = wm?.default_choice?.value || wm?.default_preset_id;
+    if (!id) return null;
+
+    const found = (this.watermarkPresets || []).find((p) => String(p?.id) === String(id));
+    return found?.label || this._renderWatermarkDisplay(String(id));
+  }
+
+  _renderWatermarkDisplay(raw) {
+    const s = String(raw || "");
+    if (!s) return "";
+
+    const username = String(this.currentUser?.username || "username");
+    const userId = String(this.currentUser?.id || "user_id");
+
+    // Support both modern placeholders and a couple of legacy ones.
+    let out = s;
+    out = out.split("{{username}}").join(username);
+    out = out.split("{{user_id}}").join(userId);
+    out = out.split("@{{username}}").join(`@${username}`);
+    out = out.split("@{{user_id}}").join(`@${userId}`);
+    out = out.split("@username").join(`@${username}`);
+    out = out.split("@user_id").join(`@${userId}`);
+    out = out.replace(/\s+/g, " ").trim();
+    return out;
   }
 
   // -----------------------
@@ -559,13 +630,14 @@ export default class MediaGalleryPage extends Component {
     this.uploadTagsQuery = "";
     this.uploadTagsOpen = false;
 
-   if (this.watermarkConfig?.enabled) {
-    this.uploadWatermarkEnabled = true;
-    this.uploadWatermarkPresetId = this.watermarkConfig.default_preset_id || "";
-  } else {
-    this.uploadWatermarkEnabled = true;
-    this.uploadWatermarkPresetId = "";
-  }
+    if (this.watermarkConfig?.enabled) {
+      this.uploadWatermarkEnabled = true;
+      this.uploadWatermarkPresetId =
+        this.watermarkConfig?.default_choice?.value || this.watermarkConfig?.default_preset_id || "";
+    } else {
+      this.uploadWatermarkEnabled = true;
+      this.uploadWatermarkPresetId = "";
+    }
 
     // Clear native input value so selecting the same file again triggers change
     // and so the browser UI doesn't keep a stale filename.
@@ -686,20 +758,23 @@ export default class MediaGalleryPage extends Component {
       if (tags.length) payload.tags = tags;
 
 
-     // Watermark payload (only for video uploads, and only if enabled server-side)
-    if (this.watermarkConfig?.enabled && this.isVideoUploadSelected) {
-      if (this.watermarkCanToggle) {
-        payload.watermark_enabled = this.uploadWatermarkEnabled;
+      // Watermark payload (only for video uploads, and only if enabled server-side)
+      if (this.watermarkConfig?.enabled && this.isVideoUploadSelected) {
+        const watermarkEnabled = this.watermarkCanToggle ? !!this.uploadWatermarkEnabled : true;
+
+        if (this.watermarkCanToggle) {
+          payload.watermark_enabled = watermarkEnabled;
+        }
+
+        if (this.watermarkCanChoosePreset && watermarkEnabled) {
+          const choice = String(this.uploadWatermarkPresetId || "").trim();
+          if (choice) {
+            // Newer plugin versions accept `watermark_choice`; older ones expect `watermark_preset_id`.
+            payload.watermark_choice = choice;
+            payload.watermark_preset_id = choice;
+          }
+        }
       }
-    if (
-      this.watermarkCanChoosePreset &&
-      (this.uploadWatermarkEnabled || !this.watermarkCanToggle)
-  ) {
-    if (this.uploadWatermarkPresetId) {
-      payload.watermark_preset_id = this.uploadWatermarkPresetId;
-    }
-  }
-}
 
       await ajax("/media", { type: "POST", data: payload });
 
