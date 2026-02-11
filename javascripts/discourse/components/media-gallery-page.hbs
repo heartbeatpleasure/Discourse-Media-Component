@@ -134,6 +134,7 @@
             <input
               type="checkbox"
               checked={{this.uploadWatermarkEnabled}}
+              disabled={{this.watermarkUiDisabled}}
              {{on "change" this.toggleUploadWatermark}}
             />
           <span>{{i18n "media_gallery.watermark.apply"}}</span>
@@ -145,7 +146,7 @@
           <label class="form-label">{{i18n "media_gallery.watermark.preset"}}</label>
           <select
             value={{this.uploadWatermarkPresetId}}
-            disabled={{and this.watermarkCanToggle (not this.uploadWatermarkEnabled)}}
+            disabled={{or this.watermarkUiDisabled (and this.watermarkCanToggle (not this.uploadWatermarkEnabled))}}
             {{on "change" this.setUploadWatermarkPreset}}
           >
             <option value="">
@@ -158,7 +159,12 @@
               <option value={{p.id}}>{{p.label}}</option>
             {{/each}}
           </select>
+
         </div>
+      {{/if}}
+
+      {{#if this.watermarkUiDisabled}}
+        <div class="hb-muted">Watermark applies to video uploads only.</div>
       {{/if}}
     </div>
   </div>

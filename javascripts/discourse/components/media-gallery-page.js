@@ -167,9 +167,10 @@ export default class MediaGalleryPage extends Component {
       if (this.watermarkConfig?.enabled) {
         this.uploadWatermarkEnabled = true;
 
-        // Newer plugin versions may return default_choice; older versions return default_preset_id.
+        // Newer plugin versions may return default_choice (string or {value,label}); older versions return default_preset_id.
+        const dc = this.watermarkConfig?.default_choice;
         this.uploadWatermarkPresetId =
-          this.watermarkConfig?.default_choice?.value || this.watermarkConfig?.default_preset_id || "";
+          (typeof dc === "string" ? dc : dc?.value) || this.watermarkConfig?.default_preset_id || "";
       }
     } catch (e) {
       this.watermarkConfig = null;
@@ -219,9 +220,30 @@ export default class MediaGalleryPage extends Component {
     return /\.(mp4|m4v|webm|mkv)$/i.test(name);
   }
 
+  get isAudioUploadSelected() {
+    const f = this.uploadFile;
+    if (!f) return false;
+    const type = String(f.type || "").toLowerCase();
+    if (type.startsWith("audio/")) return true;
+    const name = String(f.name || "").toLowerCase();
+    return /\.(mp3|m4a|aac|wav|ogg|flac)$/i.test(name);
+  }
+
   get watermarkUiVisible() {
-    return !!(this.watermarkConfig?.enabled && this.isVideoUploadSelected &&
-      (this.watermarkConfig.user_can_toggle || this.watermarkConfig.user_can_choose_preset));
+    // NOTE: watermarking is currently applied server-side to video outputs.
+    // We still show the controls as soon as watermarking is enabled so admins/users
+    // can see the option immediately, even before selecting a file.
+    return !!(
+      this.watermarkConfig?.enabled &&
+      (this.watermarkConfig.user_can_toggle || this.watermarkConfig.user_can_choose_preset)
+    );
+  }
+
+  get watermarkUiDisabled() {
+    // If a non-video file is selected, keep the UI visible but disable controls to
+    // avoid the impression watermark will apply to images/audio.
+    if (!this.uploadFile) return false;
+    return !this.isVideoUploadSelected;
   }
 
   get watermarkCanToggle() {
@@ -240,10 +262,15 @@ export default class MediaGalleryPage extends Component {
     let list = [];
     if (Array.isArray(wm.choices) && wm.choices.length) {
       list = wm.choices
-        .map((c) => ({
-          id: String(c?.value || "").trim(),
-          label: String(c?.label || c?.value || "").trim(),
-        }))
+        .map((c) => {
+          if (typeof c === "string") {
+            const v = c.trim();
+            return { id: v, label: v };
+          }
+          const v = String(c?.value || "").trim();
+          const l = String(c?.label || c?.value || "").trim();
+          return { id: v, label: l };
+        })
         .filter((x) => x.id);
     } else if (Array.isArray(wm.presets) && wm.presets.length) {
       list = wm.presets
@@ -272,10 +299,12 @@ export default class MediaGalleryPage extends Component {
 
   get watermarkDefaultLabel() {
     const wm = this.watermarkConfig || {};
-    const direct = wm?.default_choice?.label;
+    const direct = typeof wm?.default_choice === "object" ? wm?.default_choice?.label : null;
     if (direct) return this._renderWatermarkDisplay(direct);
 
-    const id = wm?.default_choice?.value || wm?.default_preset_id;
+    const id =
+      (typeof wm?.default_choice === "string" ? wm.default_choice : wm?.default_choice?.value) ||
+      wm?.default_preset_id;
     if (!id) return null;
 
     const found = (this.watermarkPresets || []).find((p) => String(p?.id) === String(id));
@@ -632,8 +661,9 @@ export default class MediaGalleryPage extends Component {
 
     if (this.watermarkConfig?.enabled) {
       this.uploadWatermarkEnabled = true;
+      const dc = this.watermarkConfig?.default_choice;
       this.uploadWatermarkPresetId =
-        this.watermarkConfig?.default_choice?.value || this.watermarkConfig?.default_preset_id || "";
+        (typeof dc === "string" ? dc : dc?.value) || this.watermarkConfig?.default_preset_id || "";
     } else {
       this.uploadWatermarkEnabled = true;
       this.uploadWatermarkPresetId = "";
