@@ -321,104 +321,140 @@
     <p>{{i18n "loading"}}</p>
   {{else}}
     {{#if (gt this.items.length 0)}}
-      <div class="hb-media-library-grid">
+      <div class="hb-media-library-list">
         {{#each this.items as |item|}}
-          <div class="hb-media-library-card" role="button" tabindex="0" {{on "click" (fn this.openPreview item)}}>
-            <div class="hb-media-library-thumb {{if (or (not (eq item.status "ready")) item._thumbFailed (not item.thumbnail_url)) "hb-media-library-thumb--placeholder"}}">
-              {{#if (and (eq item.status "ready") item.thumbnail_url (not item._thumbFailed))}}
-                <img
-                  alt=""
-                  src={{item.thumbnail_url}}
-                  data-thumb-base={{item.thumbnail_url}}
-                  loading="lazy"
-                  decoding="async"
-                  {{on "load" (fn this.onThumbLoad item)}}
-                  {{on "error" (fn this.onThumbError item)}}
-                />
-              {{else}}
-                <span class="hb-media-library-thumb-loading">
-                  {{#if (eq item.media_type "audio")}}
-                    <span class="hb-media-library-audio-thumb">
-                      {{d-icon "music"}}
-                      <span class="hb-media-library-audio-thumb__text">Audio</span>
-                    </span>
-                  {{else}}
-                    {{#if item._thumbFailed}}
-                      No thumbnail
-                    {{else if item.status}}
-                      {{item.status}}
+          <article class="hb-media-library-row">
+            <button
+              class="hb-media-library-row__thumbBtn"
+              type="button"
+              aria-label={{item.title}}
+              {{on "click" (fn this.openPreview item)}}
+            >
+              <div class="hb-media-library-row__thumb {{if (or (not (eq item.status "ready")) item._thumbFailed (not item.thumbnail_url)) "hb-media-library-row__thumb--placeholder"}}">
+                {{#if (and (eq item.status "ready") item.thumbnail_url (not item._thumbFailed))}}
+                  <img
+                    alt=""
+                    src={{item.thumbnail_url}}
+                    data-thumb-base={{item.thumbnail_url}}
+                    loading="lazy"
+                    decoding="async"
+                    {{on "load" (fn this.onThumbLoad item)}}
+                    {{on "error" (fn this.onThumbError item)}}
+                  />
+                {{else}}
+                  <span class="hb-media-library-row__thumbLoading">
+                    {{#if (eq item.media_type "audio")}}
+                      <span class="hb-media-library-audio-thumb">
+                        {{d-icon "music"}}
+                        <span class="hb-media-library-audio-thumb__text">Audio</span>
+                      </span>
                     {{else}}
-                      Loading
+                      {{#if item._thumbFailed}}
+                        No thumbnail
+                      {{else if item.status}}
+                        {{item.status}}
+                      {{else}}
+                        Loading
+                      {{/if}}
                     {{/if}}
+                  </span>
+                {{/if}}
+
+                <div class="hb-media-library-row__thumbOverlay" aria-hidden="true">
+                  <span class="hb-media-library-row__typeBadge">{{item.media_type}}</span>
+                  {{#if item.duration_seconds}}
+                    <span class="hb-media-library-row__duration">{{this.formatDuration item.duration_seconds}}</span>
                   {{/if}}
-                </span>
-              {{/if}}
-            </div>
+                </div>
+              </div>
+            </button>
 
-            <div class="hb-media-library-meta">
-              <div class="title">{{item.title}}</div>
+            <div class="hb-media-library-row__content">
+              <div class="hb-media-library-row__headline">
+                <button
+                  class="hb-media-library-row__title"
+                  type="button"
+                  {{on "click" (fn this.openPreview item)}}
+                >
+                  {{item.title}}
+                </button>
 
-              <div class="sub">
-                <span>@{{item.uploader_username}}</span>
-                <span>{{item.media_type}}</span>
-                {{#if item.duration_seconds}}
-                  <span>{{this.formatDuration item.duration_seconds}}</span>
-                {{/if}}
+                <div class="hb-media-library-row__actions">
+                  <button class="like-btn" type="button" {{on "click" (fn this.toggleLike item)}}>
+                    {{#if item.liked}}♥{{else}}♡{{/if}} {{item.likes_count}}
+                  </button>
+
+                  {{#if this.isMine}}
+                    <div class="right-actions">
+                      {{#if (eq item.status "failed")}}
+                        <button class="btn btn-small btn-danger" type="button" {{on "click" (fn this.retryProcessing item)}}>
+                          {{i18n "media_gallery.retry"}}
+                        </button>
+                      {{/if}}
+
+                      <button
+                        class="btn btn-small btn-danger"
+                        type="button"
+                        disabled={{or (eq item.status "queued") (eq item.status "processing")}}
+                        title={{if (or (eq item.status "queued") (eq item.status "processing")) "You can delete this item after processing is complete." ""}}
+                        {{on "click" (fn this.openDeleteConfirm item)}}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  {{/if}}
+                </div>
               </div>
 
-              <div class="sub sub--muted">
+              <div class="hb-media-library-row__meta">
+                {{#if item.uploader_username}}
+                  <a class="hb-media-library-row__uploader" href={{concat "/u/" item.uploader_username}}>
+                    {{item.uploader_username}}
+                  </a>
+                  <span class="hb-media-library-row__sep">·</span>
+                {{/if}}
+
+                <span class="hb-media-library-row__metaItem">{{item.media_type}}</span>
+
                 {{#if item.created_at}}
-                  <span>{{this.formatCreatedAt item.created_at}}</span>
+                  <span class="hb-media-library-row__sep">·</span>
+                  <span class="hb-media-library-row__metaItem">{{this.formatCreatedAt item.created_at}}</span>
                 {{/if}}
-                <span>·</span>
-                <span>{{item.views_count}} {{i18n "media_gallery.views"}}</span>
+
+                <span class="hb-media-library-row__sep">·</span>
+                <span class="hb-media-library-row__metaItem">{{item.views_count}} {{i18n "media_gallery.views"}}</span>
               </div>
 
-              <div class="badges">
+              {{#if item.description}}
+                <div class="hb-media-library-row__description" title={{item.description}}>
+                  {{item.description}}
+                </div>
+              {{/if}}
+
+              <div class="hb-media-library-row__badges">
                 {{#if item.status}}
-                  <span class={{concat "badge " (if (eq item.status "ready") "ok" (if (eq item.status "failed") "warn" ""))}}>
+                  <span
+                    class={{concat
+                      "hb-media-library-badge "
+                      (if (eq item.status "ready") "hb-media-library-badge--ok" (if (eq item.status "failed") "hb-media-library-badge--warn" ""))
+                    }}
+                  >
                     {{item.status}}
                   </span>
                 {{/if}}
 
                 {{#if item.gender}}
-                  <span class="badge">{{item.gender}}</span>
+                  <span class="hb-media-library-badge">{{item.gender}}</span>
                 {{/if}}
 
                 {{#if item.tags}}
                   {{#each item.tags as |t|}}
-                    <span class="badge">{{t}}</span>
+                    <span class="hb-media-library-badge">{{t}}</span>
                   {{/each}}
                 {{/if}}
               </div>
-
-              <div class="actions">
-                <button class="like-btn" type="button" {{on "click" (fn this.toggleLike item)}}>
-                  {{#if item.liked}}♥{{else}}♡{{/if}} {{item.likes_count}}
-                </button>
-
-                {{#if this.isMine}}
-                  <div class="right-actions">
-                    {{#if (eq item.status "failed")}}
-                      <button class="btn btn-small btn-danger" type="button" {{on "click" (fn this.retryProcessing item)}}>
-                        {{i18n "media_gallery.retry"}}
-                      </button>
-                    {{/if}}
-
-                    <button
-                      class="btn btn-small btn-danger"
-                      type="button"
-                      disabled={{or (eq item.status "queued") (eq item.status "processing")}}
-                      title={{if (or (eq item.status "queued") (eq item.status "processing")) "You can delete this item after processing is complete." ""}}
-                      {{on "click" (fn this.openDeleteConfirm item)}}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                {{/if}}
-              </div>
             </div>
-          </div>
+          </article>
         {{/each}}
       </div>
 
@@ -463,7 +499,11 @@
               {{/if}}
 
               <div>
-                <strong>@{{this.previewItem.uploader_username}}</strong>
+                <strong>
+                  <a href={{concat "/u/" this.previewItem.uploader_username}}>
+                    {{this.previewItem.uploader_username}}
+                  </a>
+                </strong>
                 · {{this.previewItem.views_count}} {{i18n "media_gallery.views"}}
                 · {{this.previewItem.likes_count}} {{i18n "media_gallery.likes"}}
               </div>
