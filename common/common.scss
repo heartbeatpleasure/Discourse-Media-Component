@@ -810,8 +810,8 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 14px;
-  margin-top: 0.25rem;
+  gap: 20px;
+  margin-top: 0.5rem;
 }
 
 .hb-watermark-toggle {
@@ -819,7 +819,9 @@
   /* Put the checkbox after the text for nicer alignment */
   flex-direction: row-reverse;
   justify-content: flex-end;
-  font-weight: 700;
+  gap: 10px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .hb-checkbox {
@@ -828,7 +830,12 @@
   gap: 8px;
 
   input[type="checkbox"] {
-    transform: translateY(1px);
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    transform: none;
+    accent-color: var(--tertiary);
+    vertical-align: middle;
   }
 }
 
@@ -836,15 +843,15 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.35rem;
+  gap: 0.5rem;
   width: 100%;
   min-width: 0;
   justify-content: flex-start;
 
   .hb-watermark-preset__label {
-    font-weight: 700;
-    color: var(--primary);
-    font-size: var(--font-up-0);
+    font-weight: 600;
+    color: var(--primary-medium);
+    font-size: var(--font-down-0);
     white-space: normal;
   }
 

@@ -445,32 +445,30 @@
                 </div>
               {{/if}}
 
-              {{#if (and this.isMine item.status)}}
-                <div class="hb-media-library-row__statusBadges">
-                  <span
-                    class={{concat
-                      "hb-media-library-badge "
-                      (if (eq item.status "ready") "hb-media-library-badge--ok" (if (eq item.status "failed") "hb-media-library-badge--warn" ""))
-                    }}
-                  >
-                    {{item.status}}
-                  </span>
-                </div>
-              {{/if}}
+              {{#if (or item.gender item.tags (and this.isMine item.status))}}
+  <div class="hb-media-library-row__footerBadges">
+    {{#if (and this.isMine item.status)}}
+      <span
+        class={{concat
+          "hb-media-library-badge "
+          (if (eq item.status "ready") "hb-media-library-badge--ok" (if (eq item.status "failed") "hb-media-library-badge--warn" ""))
+        }}
+      >
+        {{item.status}}
+      </span>
+    {{/if}}
 
-              {{#if (or item.gender item.tags)}}
-                <div class="hb-media-library-row__footerBadges">
-                  {{#if item.gender}}
-                    <span class="hb-media-library-badge">{{item.gender}}</span>
-                  {{/if}}
+    {{#if item.gender}}
+      <span class="hb-media-library-badge">{{item.gender}}</span>
+    {{/if}}
 
-                  {{#if item.tags}}
-                    {{#each item.tags as |t|}}
-                      <span class="hb-media-library-badge">{{t}}</span>
-                    {{/each}}
-                  {{/if}}
-                </div>
-              {{/if}}
+    {{#if item.tags}}
+      {{#each item.tags as |t|}}
+        <span class="hb-media-library-badge">{{t}}</span>
+      {{/each}}
+    {{/if}}
+  </div>
+{{/if}}
             </div>
           </article>
         {{/each}}
