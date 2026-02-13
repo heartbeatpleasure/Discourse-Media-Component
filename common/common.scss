@@ -420,6 +420,11 @@
     font-size: var(--font-down-1);
   }
 
+  .hb-media-library-row__metaLabel {
+    font-weight: 700;
+    color: var(--primary-medium);
+  }
+
   .hb-media-library-row__uploader {
     color: var(--primary);
     font-weight: 800;
@@ -444,11 +449,19 @@
     -webkit-box-orient: vertical;
   }
 
+  .hb-media-library-row__statusRow {
+    margin-top: 0.15rem;
+  }
+
   .hb-media-library-row__badges {
     display: flex;
     gap: 0.35rem;
     flex-wrap: wrap;
     margin-top: 0.15rem;
+  }
+
+  .hb-media-library-row__badges.hb-media-library-row__badges--footer {
+    margin-top: 0.35rem;
   }
 
   /* Shared pills/badges (used in list rows and modals) */
@@ -488,6 +501,47 @@
 
     &:hover {
       background: var(--primary-very-low);
+    }
+  }
+
+  /* Like button styled closer to Discourse (count + heart, with love color on liked) */
+  .hb-like-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border: none;
+    background: transparent;
+    padding: 0.25rem 0.4rem;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--primary-medium);
+    font-weight: 800;
+
+    .hb-like-btn__count {
+      line-height: 1;
+    }
+
+    .d-icon {
+      width: 1.1em;
+      height: 1.1em;
+    }
+
+    &:hover {
+      background: var(--primary-very-low);
+      color: var(--primary);
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+  }
+
+  .hb-like-btn--liked {
+    color: var(--love, var(--danger));
+
+    &:hover {
+      color: var(--love, var(--danger));
     }
   }
 
