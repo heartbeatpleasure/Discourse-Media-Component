@@ -733,10 +733,12 @@
   }
 
   .hb-media-library-modal {
-    /* Wider modal on large screens, still responsive */
-    width: min(1400px, 96vw);
+    /* Shrinks to content when possible (portrait media), still capped for large screens */
+    width: fit-content;
+    max-width: min(1400px, 96vw);
     background: var(--secondary);
     border-radius: 14px;
+    position: relative;
     overflow: hidden;
     /* Keep the modal usable on short viewports */
     max-height: calc(100vh - 2rem);
@@ -791,6 +793,29 @@
     }
   }
 
+/* Preview close button (absolute, no header bar) */
+.hb-media-preview__close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 5;
+
+  margin: 0;
+  border-radius: 999px;
+  padding: 0.4rem 0.6rem;
+  background: var(--primary-very-low);
+  border: 1px solid var(--primary-low);
+  line-height: 1;
+
+  .d-icon {
+    margin: 0;
+  }
+
+  &:hover {
+    background: var(--primary-low);
+  }
+}
+
   .hb-media-library-modal-body {
     padding: 1rem;
     /* Allows details to scroll if the media is tall */
@@ -842,13 +867,15 @@
 
   /* Modern, two-column preview layout (responsive) */
   .hb-media-preview {
+    --hb-preview-panel-w: clamp(280px, 30vw, 380px);
     display: grid;
-    /* Make the media column take more space, side panel scales with viewport */
-    grid-template-columns: minmax(0, 1fr) clamp(280px, 30vw, 380px);
+    grid-template-columns: auto var(--hb-preview-panel-w);
     gap: 1rem;
     align-items: start;
+    justify-content: start;
 
     @media (max-width: 900px) {
+      --hb-preview-panel-w: 0px;
       grid-template-columns: 1fr;
     }
   }
@@ -859,33 +886,41 @@
     border-radius: 16px;
     padding: 0.5rem;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
   }
 
-  .hb-media-preview__player {
-  width: 100%;
+  .hb-media-preview__mediaActions {
+    margin-top: 0.5rem;
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+.hb-media-preview__player {
+  /* Use the actual aspect ratio (set from JS) so there are no ugly side bars */
+  --hb-ar: var(--hb-media-ar, 1);
+
+  /* Max available width for the media column (viewport-based so the modal can shrink-to-fit) */
+  --hb-player-max-w: min(
+    1100px,
+    calc(96vw - var(--hb-preview-panel-w) - 3.5rem)
+  );
+
+  width: min(var(--hb-player-max-w), calc(var(--hb-media-player-max-h) * var(--hb-ar)));
+  height: min(var(--hb-media-player-max-h), calc(var(--hb-player-max-w) / var(--hb-ar)));
+
   display: flex;
   justify-content: center;
   align-items: center;
 
-  /* Keep things looking good for any aspect ratio */
   position: relative;
   overflow: hidden;
   border-radius: 14px;
-  background: #000;
+  background: var(--primary-very-low);
+  border: 1px solid var(--primary-low);
 
-  /* Cap very tall media on small viewports */
-  max-height: var(--hb-media-player-max-h);
-
-  /*
-    Default: let landscape media define the height (prevents big empty bands).
-    For portrait/square we reserve a taller frame so the media can feel "big".
-  */
-  &.is-portrait,
-  &.is-square {
-    height: var(--hb-media-player-max-h);
-  }
-
-  /* Ambient background (only active when --hb-preview-bg is set, e.g. images) */
+  /* Ambient background (only active when --hb-preview-bg is set, i.e. images) */
   &::before {
     content: "";
     position: absolute;
@@ -895,15 +930,7 @@
     background-position: center;
     filter: blur(26px);
     transform: scale(1.12);
-    opacity: 0.45;
-    pointer-events: none;
-  }
-
-  &::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.42));
+    opacity: 0.35;
     pointer-events: none;
   }
 
@@ -912,16 +939,12 @@
     position: relative;
     z-index: 1;
 
-    width: auto;
-    height: auto;
-
-    max-width: 100%;
-    max-height: var(--hb-media-player-max-h);
-
+    width: 100%;
+    height: 100%;
     object-fit: contain;
-    border-radius: 14px;
-    background: #000;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+
+    border-radius: 12px;
+    background: transparent;
   }
 
   /* Hint that images can be opened fullscreen */
@@ -938,25 +961,40 @@
   /* Fullscreen tweaks (double-click on image) */
   &:fullscreen,
   &:-webkit-full-screen {
+    width: 100vw;
+    height: 100vh;
+    max-height: none;
     border-radius: 0;
     background: #000;
+    border: 0;
   }
 
   &:fullscreen::before,
-  &:fullscreen::after,
-  &:-webkit-full-screen::before,
-  &:-webkit-full-screen::after {
+  &:-webkit-full-screen::before {
     display: none;
   }
 
   &:fullscreen img,
-  &:-webkit-full-screen img {
+  &:fullscreen video,
+  &:-webkit-full-screen img,
+  &:-webkit-full-screen video {
+    width: 100%;
+    height: 100%;
     max-width: 100vw;
     max-height: 100vh;
     border-radius: 0;
+  }
+
+  &:fullscreen img,
+  &:-webkit-full-screen img {
     cursor: zoom-out;
   }
 }
+  @media (max-width: 900px) {
+    .hb-media-preview__player {
+      --hb-player-max-w: min(1100px, calc(96vw - 2.5rem));
+    }
+  }
 
 .hb-media-preview__panel {
     display: flex;
@@ -969,12 +1007,13 @@
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
+    padding-top: 0.35rem;
   }
 
   .hb-media-preview__titleRow {
     display: flex;
     align-items: flex-start;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 0.75rem;
   }
 
@@ -1018,6 +1057,7 @@
     background: var(--primary-very-low);
     border: 1px solid var(--primary-low);
     border-radius: 14px;
+    position: relative;
     padding: 0.85rem;
     line-height: 1.5;
     color: var(--primary);

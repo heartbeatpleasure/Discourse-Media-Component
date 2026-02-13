@@ -138,6 +138,7 @@ export default class MediaGalleryPage extends Component {
   @tracked previewLoading = false;
   @tracked previewRetryCount = 0;
   @tracked previewAspect = null;
+  @tracked previewAr = 1;
 
   // Delete confirmation modal
   @tracked deleteOpen = false;
@@ -1113,12 +1114,19 @@ get previewAspectClass() {
 }
 
 get previewPlayerStyle() {
+  // Provide numeric aspect ratio to CSS so the player can size itself perfectly for any media.
+  const ar = Number(this.previewAr);
+  const safeAr = Number.isFinite(ar) && ar > 0 ? Math.min(Math.max(ar, 0.2), 5) : 1;
+
+  let style = `--hb-media-ar: ${safeAr};`;
+
   // For images we add an "ambient" blurred background behind the media
   if (this.previewItem?.media_type === "image" && this.previewStreamUrl) {
-    const safeUrl = String(this.previewStreamUrl).replace(/"/g, '\"');
-    return htmlSafe(`--hb-preview-bg: url("${safeUrl}");`);
+    const safeUrl = String(this.previewStreamUrl).replace(/"/g, '\\"');
+    style += ` --hb-preview-bg: url("${safeUrl}");`;
   }
-  return null;
+
+  return htmlSafe(style);
 }
 
 _setPreviewAspect(width, height) {
@@ -1127,6 +1135,7 @@ _setPreviewAspect(width, height) {
   if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
 
   const ratio = w / h;
+  this.previewAr = ratio;
 
   // A little fuzzy on purpose so "almost square" doesn't jump around
   if (ratio > 1.12) this.previewAspect = "landscape";
@@ -1188,6 +1197,7 @@ toggleImageFullscreen(e) {
     this.previewLoading = true;
     this.previewRetryCount = 0;
     this.previewAspect = null;
+    this.previewAr = 1;
     this.errorMessage = null;
 
     try {
@@ -1207,6 +1217,7 @@ toggleImageFullscreen(e) {
     this.previewLoading = false;
     this.previewRetryCount = 0;
     this.previewAspect = null;
+    this.previewAr = 1;
   }
 
   @action
