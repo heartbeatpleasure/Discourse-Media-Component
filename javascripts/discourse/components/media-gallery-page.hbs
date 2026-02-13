@@ -185,6 +185,7 @@
             <option value="both">{{i18n "media_gallery.genders.both"}}</option>
             <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
             <option value="objects">{{i18n "media_gallery.genders.objects"}}</option>
+            <option value="other">{{i18n "media_gallery.genders.other"}}</option>
           </select>
         </div>
 
@@ -198,9 +199,9 @@
               disabled={{this.uploadBusy}}
               {{on "change" this.setUploadAuthorized}}
             />
-            <span>
-              {{i18n "media_gallery.authorization.text"}}
+            <span class="hb-authorization-text">
               {{#if this.uploadTermsUrl}}
+                {{i18n "media_gallery.authorization.text_with_terms_prefix"}}
                 <a
                   class="hb-authorization-link"
                   href={{this.uploadTermsUrl}}
@@ -208,7 +209,9 @@
                   rel="noopener noreferrer"
                 >
                   {{i18n "media_gallery.authorization.link"}}
-                </a>
+                </a>{{i18n "media_gallery.authorization.text_with_terms_suffix"}}
+              {{else}}
+                {{i18n "media_gallery.authorization.text_no_terms"}}
               {{/if}}
             </span>
           </label>
@@ -269,6 +272,7 @@
           <option value="both">{{i18n "media_gallery.genders.both"}}</option>
           <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
           <option value="objects">{{i18n "media_gallery.genders.objects"}}</option>
+          <option value="other">{{i18n "media_gallery.genders.other"}}</option>
         </select>
       </div>
 

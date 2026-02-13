@@ -809,7 +809,9 @@ export default class MediaGalleryPage extends Component {
     }
 
     if (!this.uploadAuthorized) {
-      this.errorMessage = I18n.t("media_gallery.errors.missing_authorization");
+      this.errorMessage = this.uploadTermsUrl
+        ? I18n.t("media_gallery.errors.missing_authorization_with_terms")
+        : I18n.t("media_gallery.errors.missing_authorization");
       return;
     }
 
@@ -837,7 +839,7 @@ export default class MediaGalleryPage extends Component {
         upload_id: uploadId,
         title: this.uploadTitle.trim(),
         gender: this.uploadGender,
-        authorized: true,
+        authorized: !!this.uploadAuthorized,
       };
 
       if (this.uploadDescription?.trim()) payload.description = this.uploadDescription.trim();

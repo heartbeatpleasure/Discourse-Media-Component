@@ -820,16 +820,17 @@
   flex-direction: row-reverse;
   justify-content: flex-end;
   gap: 10px;
+
+  /* Match the watermark option label style (no input-like box) */
   font-weight: 600;
+  color: var(--primary-medium);
+  font-size: var(--font-down-0);
   line-height: 1.2;
 
-  /* Make the checkbox row look like a normal input field */
-  border: 1px solid var(--primary-low);
-  border-radius: 10px;
-  background: var(--secondary);
-  padding: 0.55rem 0.65rem;
-  width: 100%;
-  max-width: 560px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  width: auto;
 }
 
 .hb-checkbox {
@@ -865,7 +866,6 @@
 
   select {
     width: 100%;
-    max-width: 560px;
   }
 }
 
@@ -875,8 +875,17 @@
   background: var(--secondary);
   padding: 0.55rem 0.65rem;
   width: 100%;
-  max-width: 560px;
   line-height: 1.25;
+
+  /* Allow the sentence + link to wrap naturally like other fields */
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+
+  .hb-authorization-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
 
   .hb-authorization-link {
     margin-left: 0.35rem;
