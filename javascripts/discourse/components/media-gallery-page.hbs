@@ -20,7 +20,7 @@
       </button>
     </div>
 
-    <div>
+    <div class="hb-media-library-header__actions">
       <button class="btn btn-primary" type="button" {{on "click" this.toggleUpload}}>
         {{#if this.showUpload}}
           {{i18n "media_gallery.close"}}
@@ -56,13 +56,15 @@
             />
 
             <label class="btn btn-default hb-file-picker__btn" for="hb-media-upload-file">
-              Browse…
+              Choose file
             </label>
 
             {{#if this.uploadFile}}
               <span class="hb-file-picker__filename" title={{this.uploadFile.name}}>
                 {{this.uploadFile.name}}
               </span>
+            {{else}}
+              <span class="hb-file-picker__placeholder">No file selected</span>
             {{/if}}
           </div>
         </div>
@@ -128,9 +130,9 @@
           <div class="hb-field hb-field--span2">
             <label class="form-label">{{i18n "media_gallery.watermark.label"}}</label>
 
-            <div class="hb-watermark-row">
+            <div class="hb-watermark-block">
               {{#if this.watermarkCanToggle}}
-                <label class="hb-checkbox hb-watermark-toggle">
+                <label class="hb-checkbox">
                   <input
                     type="checkbox"
                     checked={{this.uploadWatermarkEnabled}}
@@ -143,7 +145,7 @@
 
               {{#if this.watermarkCanChoosePreset}}
                 <div class="hb-watermark-preset">
-                  <span class="hb-watermark-preset__label">{{i18n "media_gallery.watermark.preset"}}</span>
+                  <label class="hb-watermark-preset__label">{{i18n "media_gallery.watermark.preset"}}</label>
                   <select
                     value={{this.uploadWatermarkPresetId}}
                     disabled={{or this.watermarkUiDisabled (and this.watermarkCanToggle (not this.uploadWatermarkEnabled))}}
@@ -427,6 +429,18 @@
                 <span class="hb-media-library-row__metaLabel">Type:</span>
                 <span class="hb-media-library-row__metaItem">{{this.prettyMediaType item.media_type}}</span>
 
+                {{#if (and this.isMine item.status)}}
+                  <span class="hb-media-library-row__sep">·</span>
+                  <span
+                    class={{concat
+                      "hb-media-library-badge hb-media-library-row__metaStatus "
+                      (if (eq item.status "ready") "hb-media-library-badge--ok" (if (eq item.status "failed") "hb-media-library-badge--warn" ""))
+                    }}
+                  >
+                    {{item.status}}
+                  </span>
+                {{/if}}
+
                 {{#if item.created_at}}
                   <span class="hb-media-library-row__sep">·</span>
                   <span class="hb-media-library-row__metaLabel">Uploaded on:</span>
@@ -440,19 +454,6 @@
               {{#if item.description}}
                 <div class="hb-media-library-row__description" title={{item.description}}>
                   {{item.description}}
-                </div>
-              {{/if}}
-
-              {{#if (and this.isMine item.status)}}
-                <div class="hb-media-library-row__statusBadges">
-                  <span
-                    class={{concat
-                      "hb-media-library-badge "
-                      (if (eq item.status "ready") "hb-media-library-badge--ok" (if (eq item.status "failed") "hb-media-library-badge--warn" ""))
-                    }}
-                  >
-                    {{item.status}}
-                  </span>
                 </div>
               {{/if}}
 

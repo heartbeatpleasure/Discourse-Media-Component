@@ -17,6 +17,11 @@
     }
   }
 
+  /* Nudge the Upload/Close button slightly left so it visually aligns with panel edges */
+  .hb-media-library-header__actions {
+    margin-right: 0.5rem;
+  }
+
   .hb-media-library-tabs {
     display: flex;
     gap: 0.5rem;
@@ -79,9 +84,9 @@
       }
 
       select {
-        min-height: 2.4rem;
-        padding-top: 0.45rem;
-        padding-bottom: 0.45rem;
+        min-height: 2.65rem;
+        padding-top: 0.55rem;
+        padding-bottom: 0.55rem;
       }
 
       textarea {
@@ -102,6 +107,12 @@
     align-items: center;
     flex-wrap: wrap;
     min-width: 0;
+    width: 100%;
+    border: 1px solid var(--primary-low);
+    border-radius: 10px;
+    background: var(--secondary);
+    padding: 0.35rem 0.45rem;
+    min-height: 2.65rem;
 
     .hb-file-picker__input {
       position: absolute;
@@ -118,6 +129,7 @@
 
     .hb-file-picker__btn {
       margin: 0;
+      flex: 0 0 auto;
     }
 
     .hb-file-picker__filename {
@@ -126,6 +138,16 @@
       overflow: hidden;
       text-overflow: ellipsis;
       max-width: 100%;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .hb-file-picker__placeholder {
+      font-size: var(--font-down-1);
+      color: var(--primary-medium);
+      opacity: 0.85;
+      flex: 1 1 auto;
+      min-width: 0;
     }
   }
 
@@ -152,8 +174,8 @@
       border: 1px solid var(--primary-low);
       border-radius: 10px;
       background: var(--secondary);
-      padding: 0.25rem 0.3rem;
-      min-height: 2.15rem;
+      padding: 0.18rem 0.28rem;
+      min-height: 2.05rem;
 
       &:focus-within {
         border-color: var(--tertiary);
@@ -468,6 +490,13 @@
     opacity: 0.7;
   }
 
+  /* Status pill in meta row (My uploads) */
+  .hb-media-library-row__metaStatus {
+    padding: 0.06rem 0.45rem;
+    font-size: var(--font-down-2);
+    transform: translateY(-1px);
+  }
+
   .hb-media-library-row__description {
     color: var(--primary);
     opacity: 0.9;
@@ -493,8 +522,8 @@
 
   .hb-media-library-row__footerBadges {
     margin-top: auto; /* pins tags/gender to bottom of row (desktop) */
-    padding-top: 0.35rem;
-    padding-bottom: 4px; /* nudge tags/gender up a few px */
+    padding-top: 0.3rem;
+    padding-bottom: 2px; /* nudge tags/gender up a few px */
   }
 
   /* Shared pills/badges (used in list rows and modals) */
@@ -502,11 +531,12 @@
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    padding: 0.12rem 0.5rem;
+    padding: 0.1rem 0.45rem;
     border-radius: 999px;
     font-size: var(--font-down-2);
     background: var(--primary-very-low);
     color: var(--primary);
+    white-space: nowrap;
 
     &.hb-media-library-badge--ok {
       background: var(--success-low);
@@ -813,6 +843,12 @@
   flex-wrap: wrap;
 }
 
+/* Upload: watermark section should match other fields (stacked control) */
+.hb-watermark-block {
+  display: grid;
+  gap: 0.5rem;
+}
+
 .hb-watermark-toggle {
   flex: 0 0 auto;
 }
@@ -828,22 +864,18 @@
 }
 
 .hb-watermark-preset {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1 1 320px;
-  justify-content: flex-end;
-  min-width: 240px;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
 
   .hb-watermark-preset__label {
     font-weight: 700;
-    color: var(--primary-medium);
-    font-size: var(--font-down-1);
-    white-space: nowrap;
+    color: var(--primary);
+    font-size: var(--font-up-0);
   }
 
   select {
-    min-width: 220px;
+    width: 100%;
   }
 }
 
