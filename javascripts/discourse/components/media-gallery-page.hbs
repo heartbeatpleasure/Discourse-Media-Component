@@ -71,7 +71,12 @@
 
         <div class="hb-field hb-field--span2">
           <label class="form-label">{{i18n "media_gallery.title_label"}}</label>
-          <input type="text" value={{this.uploadTitle}} {{on "input" this.setUploadTitle}} />
+          <input
+            type="text"
+            value={{this.uploadTitle}}
+            placeholder={{i18n "media_gallery.title_placeholder"}}
+            {{on "input" this.setUploadTitle}}
+          />
         </div>
 
         <div class="hb-field hb-field--span2">
@@ -174,11 +179,39 @@
         <div class="hb-field hb-field--span2">
           <label class="form-label">{{i18n "media_gallery.gender_label"}}</label>
           <select {{on "change" this.setUploadGender}} value={{this.uploadGender}}>
-            <option value="">Select gender</option>
+            <option value="">{{i18n "media_gallery.genders.select_placeholder"}}</option>
             <option value="male">{{i18n "media_gallery.genders.male"}}</option>
             <option value="female">{{i18n "media_gallery.genders.female"}}</option>
+            <option value="both">{{i18n "media_gallery.genders.both"}}</option>
             <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
+            <option value="objects">{{i18n "media_gallery.genders.objects"}}</option>
           </select>
+        </div>
+
+        <div class="hb-field hb-field--span2">
+          <label class="form-label">{{i18n "media_gallery.authorization.label"}}</label>
+
+          <label class="hb-checkbox hb-authorization-checkbox">
+            <input
+              type="checkbox"
+              checked={{this.uploadAuthorized}}
+              disabled={{this.uploadBusy}}
+              {{on "change" this.setUploadAuthorized}}
+            />
+            <span>
+              {{i18n "media_gallery.authorization.text"}}
+              {{#if this.uploadTermsUrl}}
+                <a
+                  class="hb-authorization-link"
+                  href={{this.uploadTermsUrl}}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {{i18n "media_gallery.authorization.link"}}
+                </a>
+              {{/if}}
+            </span>
+          </label>
         </div>
       </div>
 
@@ -186,7 +219,7 @@
         <button
           class="btn btn-primary"
           type="button"
-          disabled={{this.uploadBusy}}
+          disabled={{this.uploadSubmitDisabled}}
           {{on "click" this.submitUpload}}
         >
           {{#if this.uploadBusy}}
@@ -233,7 +266,9 @@
           <option value="">Do not consider</option>
           <option value="male">{{i18n "media_gallery.genders.male"}}</option>
           <option value="female">{{i18n "media_gallery.genders.female"}}</option>
+          <option value="both">{{i18n "media_gallery.genders.both"}}</option>
           <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
+          <option value="objects">{{i18n "media_gallery.genders.objects"}}</option>
         </select>
       </div>
 
@@ -459,7 +494,7 @@
     {{/if}}
 
     {{#if item.gender}}
-      <span class="hb-media-library-badge">{{item.gender}}</span>
+      <span class="hb-media-library-badge">{{this.prettyGender item.gender}}</span>
     {{/if}}
 
     {{#if item.tags}}

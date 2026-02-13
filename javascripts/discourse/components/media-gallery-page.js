@@ -21,6 +21,10 @@ function stripExt(filename) {
   return filename?.replace(/\.[^/.]+$/, "") || filename;
 }
 
+function getSiteSetting(key) {
+  return window?.Discourse?.SiteSettings?.[key];
+}
+
 function uniqStrings(arr) {
   const seen = new Set();
   const out = [];
@@ -113,7 +117,10 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadFile = null;
   @tracked uploadTitle = "";
   @tracked uploadDescription = "";
+  // NOTE: kept as `gender` for backwards compatibility with the plugin API,
+  // but used as a "file contains" / subject selector in the UI.
   @tracked uploadGender = "";
+  @tracked uploadAuthorized = false;
   @tracked watermarkConfig = null;
   @tracked uploadWatermarkEnabled = true;
   @tracked uploadWatermarkPresetId = "";
@@ -211,7 +218,20 @@ export default class MediaGalleryPage extends Component {
     return normalizeListSetting(raw);
   }
 
-    get isVideoUploadSelected() {
+  get uploadTermsUrl() {
+    return String(getSiteSetting("media_gallery_upload_terms_url") || "").trim() || null;
+  }
+
+  get uploadSubmitDisabled() {
+    if (this.uploadBusy) return true;
+    if (!this.uploadFile) return true;
+    if (!this.uploadTitle?.trim()) return true;
+    if (!this.uploadGender) return true;
+    if (!this.uploadAuthorized) return true;
+    return false;
+  }
+
+  get isVideoUploadSelected() {
     const f = this.uploadFile;
     if (!f) return false;
     const type = String(f.type || "").toLowerCase();
@@ -219,7 +239,6 @@ export default class MediaGalleryPage extends Component {
     const name = String(f.name || "").toLowerCase();
     return /\.(mp4|m4v|webm|mkv)$/i.test(name);
   }
-
 
   get isImageUploadSelected() {
     const f = this.uploadFile;
@@ -364,6 +383,13 @@ export default class MediaGalleryPage extends Component {
     const t = String(mediaType || "").trim();
     if (!t) return "";
     return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  prettyGender(gender) {
+    const g = String(gender || "").trim();
+    if (!g) return "";
+    const key = `media_gallery.genders.${g}`;
+    return I18n.exists?.(key) ? I18n.t(key) : g;
   }
   // -----------------------
   // Multi-select suggestions
@@ -665,14 +691,14 @@ export default class MediaGalleryPage extends Component {
     this._uploadFileInputEl = e.target;
     const file = e.target.files?.[0];
     this.uploadFile = file || null;
-    if (file && !this.uploadTitle) {
-      this.uploadTitle = stripExt(file.name);
-    }
+    // Intentionally do NOT auto-fill the title with the filename.
+    // Filenames are often random hashes; users must provide a descriptive title.
   }
 
   @action setUploadTitle(e) { this.uploadTitle = e.target.value; }
   @action setUploadDescription(e) { this.uploadDescription = e.target.value; }
   @action setUploadGender(e) { this.uploadGender = e.target.value; }
+  @action setUploadAuthorized(e) { this.uploadAuthorized = !!e.target.checked; }
 
   @action
   resetUploadForm() {
@@ -680,6 +706,7 @@ export default class MediaGalleryPage extends Component {
     this.uploadTitle = "";
     this.uploadDescription = "";
     this.uploadGender = "";
+    this.uploadAuthorized = false;
     this.uploadTagsSelected = [];
     this.uploadTagsQuery = "";
     this.uploadTagsOpen = false;
@@ -777,7 +804,12 @@ export default class MediaGalleryPage extends Component {
     }
 
     if (!this.uploadGender) {
-      this.errorMessage = "Please select a gender.";
+      this.errorMessage = I18n.t("media_gallery.errors.missing_gender");
+      return;
+    }
+
+    if (!this.uploadAuthorized) {
+      this.errorMessage = I18n.t("media_gallery.errors.missing_authorization");
       return;
     }
 
@@ -805,6 +837,7 @@ export default class MediaGalleryPage extends Component {
         upload_id: uploadId,
         title: this.uploadTitle.trim(),
         gender: this.uploadGender,
+        authorized: true,
       };
 
       if (this.uploadDescription?.trim()) payload.description = this.uploadDescription.trim();
