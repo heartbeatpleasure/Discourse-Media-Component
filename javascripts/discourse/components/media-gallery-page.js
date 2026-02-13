@@ -356,13 +356,13 @@ export default class MediaGalleryPage extends Component {
   }
 
   cleanUsername(username) {
-    const u = String(username || '').trim();
-    return u.replace(/^@/, '');
+    const u = (username || "").trim();
+    return u.startsWith("@") ? u.slice(1) : u;
   }
 
-  prettyMediaType(type) {
-    const t = String(type || '').trim().toLowerCase();
-    if (!t) return '';
+  prettyMediaType(mediaType) {
+    const t = String(mediaType || "").trim();
+    if (!t) return "";
     return t.charAt(0).toUpperCase() + t.slice(1);
   }
   // -----------------------
@@ -1006,36 +1006,49 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   // Like / Unlike
   // -----------------------
+  _updateItemByPublicId(publicId, updates) {
+    if (!publicId) return;
+    this.items = (this.items || []).map((it) =>
+      it?.public_id === publicId ? { ...it, ...updates } : it
+    );
+  }
+
   @action
   async toggleLike(item, ev) {
     ev?.stopPropagation?.();
-    if (!item?.public_id) return;
-    if (item._likeBusy) return;
+
+    const publicId = item?.public_id;
+    if (!publicId) return;
+
+    if (item?._likePending) return;
 
     const wasLiked = !!item.liked;
-    const currentCount = parseInt(item.likes_count || 0, 10) || 0;
+    const wasCount = parseInt(item.likes_count || 0, 10) || 0;
+
     const nextLiked = !wasLiked;
-    const nextCount = Math.max(0, nextLiked ? currentCount + 1 : currentCount - 1);
+    const nextCount = Math.max(0, wasLiked ? wasCount - 1 : wasCount + 1);
+    const endpoint = wasLiked ? `/media/${publicId}/unlike` : `/media/${publicId}/like`;
 
-    // Optimistic UI update (instant)
-    item._likeBusy = true;
-    item.liked = nextLiked;
-    item.likes_count = nextCount;
-    this.items = [...this.items];
-
-    const endpoint = wasLiked ? `/media/${item.public_id}/unlike` : `/media/${item.public_id}/like`;
+    // Optimistic UI update (instant red heart + count change)
+    this._updateItemByPublicId(publicId, {
+      liked: nextLiked,
+      likes_count: nextCount,
+      _likePending: true,
+    });
 
     try {
-      await ajax(endpoint, { type: 'POST' });
+      await ajax(endpoint, { type: "POST" });
+      this._updateItemByPublicId(publicId, { _likePending: false });
     } catch (e) {
-      // Roll back on failure
-      item.liked = wasLiked;
-      item.likes_count = currentCount;
-      this.items = [...this.items];
-      this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(', ') || e?.message || 'Error';
-    } finally {
-      item._likeBusy = false;
-      this.items = [...this.items];
+      // Roll back on error
+      this._updateItemByPublicId(publicId, {
+        liked: wasLiked,
+        likes_count: wasCount,
+        _likePending: false,
+      });
+
+      this.errorMessage =
+        e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
     }
   }
 

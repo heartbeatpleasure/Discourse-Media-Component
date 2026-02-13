@@ -381,13 +381,13 @@
 
                 <div class="hb-media-library-row__actions">
                   <button
-                    class={{concat "hb-like-btn " (if item.liked "hb-like-btn--liked" "")}}
+                    class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
                     type="button"
-                    aria-label="Like"
-                    disabled={{item._likeBusy}}
+                    disabled={{item._likePending}}
+                    aria-label={{if item.liked (i18n "hb_media.unlike") (i18n "hb_media.like")}}
                     {{on "click" (fn this.toggleLike item)}}
                   >
-                    <span class="hb-like-btn__count">{{item.likes_count}}</span>
+                    <span class="hb-media-like__count">{{item.likes_count}}</span>
                     {{d-icon (if item.liked "heart" "far-heart")}}
                   </button>
 
@@ -415,7 +415,7 @@
 
               <div class="hb-media-library-row__meta">
                 {{#if item.uploader_username}}
-                  <span class="hb-media-library-row__metaLabel">Uploaded by:</span>
+                  <span class="hb-media-library-row__metaLabel">{{i18n "hb_media.uploaded_by"}}</span>
                   <a
                     class="hb-media-library-row__uploader"
                     href={{concat "/u/" (this.cleanUsername item.uploader_username)}}
@@ -425,12 +425,12 @@
                   <span class="hb-media-library-row__sep">·</span>
                 {{/if}}
 
-                <span class="hb-media-library-row__metaLabel">Type:</span>
+                <span class="hb-media-library-row__metaLabel">{{i18n "hb_media.type"}}</span>
                 <span class="hb-media-library-row__metaItem">{{this.prettyMediaType item.media_type}}</span>
 
                 {{#if item.created_at}}
                   <span class="hb-media-library-row__sep">·</span>
-                  <span class="hb-media-library-row__metaLabel">Uploaded on:</span>
+                  <span class="hb-media-library-row__metaLabel">{{i18n "hb_media.uploaded_on"}}</span>
                   <span class="hb-media-library-row__metaItem">{{this.formatCreatedAt item.created_at}}</span>
                 {{/if}}
 
@@ -444,23 +444,21 @@
                 </div>
               {{/if}}
 
-              {{#if this.isMine}}
-                {{#if item.status}}
-                  <div class="hb-media-library-row__statusRow">
-                    <span
-                      class={{concat
-                        "hb-media-library-badge "
-                        (if (eq item.status "ready") "hb-media-library-badge--ok" (if (eq item.status "failed") "hb-media-library-badge--warn" ""))
-                      }}
-                    >
-                      {{item.status}}
-                    </span>
-                  </div>
-                {{/if}}
+              {{#if (and this.isMine item.status)}}
+                <div class="hb-media-library-row__statusBadges">
+                  <span
+                    class={{concat
+                      "hb-media-library-badge "
+                      (if (eq item.status "ready") "hb-media-library-badge--ok" (if (eq item.status "failed") "hb-media-library-badge--warn" ""))
+                    }}
+                  >
+                    {{item.status}}
+                  </span>
+                </div>
               {{/if}}
 
               {{#if (or item.gender item.tags)}}
-                <div class="hb-media-library-row__badges hb-media-library-row__badges--footer">
+                <div class="hb-media-library-row__footerBadges">
                   {{#if item.gender}}
                     <span class="hb-media-library-badge">{{item.gender}}</span>
                   {{/if}}

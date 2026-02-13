@@ -358,9 +358,11 @@
 
   .hb-media-library-row__content {
     min-width: 0;
-    display: grid;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
     gap: 0.35rem;
-    align-content: start;
+    padding-top: 3px; /* nudge content down a few px vs thumbnail */
   }
 
   .hb-media-library-row__headline {
@@ -407,27 +409,37 @@
   .hb-media-library-row__actions {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.5rem;
     flex-wrap: wrap;
+  }
+
+  @media (max-width: 720px) {
+    .hb-media-library-row__actions {
+      justify-content: flex-start;
+    }
   }
 
   .hb-media-library-row__meta {
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
-    align-items: center;
+    align-items: baseline;
+    line-height: 1.25;
     color: var(--primary-medium);
     font-size: var(--font-down-1);
   }
 
   .hb-media-library-row__metaLabel {
-    font-weight: 700;
     color: var(--primary-medium);
+    font-weight: 600;
   }
 
   .hb-media-library-row__uploader {
     color: var(--primary);
     font-weight: 800;
+    text-decoration: none;
+    line-height: inherit;
 
     &:hover {
       text-decoration: underline;
@@ -449,19 +461,21 @@
     -webkit-box-orient: vertical;
   }
 
-  .hb-media-library-row__statusRow {
-    margin-top: 0.15rem;
-  }
-
-  .hb-media-library-row__badges {
+  .hb-media-library-row__badges,
+  .hb-media-library-row__statusBadges,
+  .hb-media-library-row__footerBadges {
     display: flex;
     gap: 0.35rem;
     flex-wrap: wrap;
+  }
+
+  .hb-media-library-row__statusBadges {
     margin-top: 0.15rem;
   }
 
-  .hb-media-library-row__badges.hb-media-library-row__badges--footer {
-    margin-top: 0.35rem;
+  .hb-media-library-row__footerBadges {
+    margin-top: auto; /* pins tags/gender to bottom of row (desktop) */
+    padding-top: 0.35rem;
   }
 
   /* Shared pills/badges (used in list rows and modals) */
@@ -487,63 +501,47 @@
   }
 
   /* Shared like button + right-actions (previously scoped to cards) */
+  .hb-media-like,
   .like-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    border: none;
-    background: transparent;
-    padding: 0.25rem 0.35rem;
-    border-radius: 8px;
-    cursor: pointer;
-    color: var(--primary);
-    font-weight: 800;
-
-    &:hover {
-      background: var(--primary-very-low);
-    }
-  }
-
-  /* Like button styled closer to Discourse (count + heart, with love color on liked) */
-  .hb-like-btn {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
     border: none;
     background: transparent;
-    padding: 0.25rem 0.4rem;
-    border-radius: 8px;
+    padding: 0.25rem 0.45rem;
+    border-radius: 999px;
     cursor: pointer;
     color: var(--primary-medium);
-    font-weight: 800;
-
-    .hb-like-btn__count {
-      line-height: 1;
-    }
-
-    .d-icon {
-      width: 1.1em;
-      height: 1.1em;
-    }
+    font-weight: 700;
 
     &:hover {
       background: var(--primary-very-low);
-      color: var(--primary);
     }
 
-    &:disabled {
+    &:focus-visible {
+      outline: 2px solid var(--tertiary);
+      outline-offset: 2px;
+    }
+
+    &[disabled] {
       opacity: 0.6;
       cursor: default;
     }
   }
 
-  .hb-like-btn--liked {
-    color: var(--love, var(--danger));
-
-    &:hover {
-      color: var(--love, var(--danger));
-    }
+  .hb-media-like__count {
+    color: var(--primary-medium);
+    font-weight: 700;
   }
+
+  .hb-media-like.is-liked .d-icon {
+    color: var(--love, var(--danger));
+  }
+
+  /* Keep count grey even when liked */
+  .hb-media-like.is-liked .hb-media-like__count {
+    color: var(--primary-medium);
+  }  }
 
   .right-actions {
     display: flex;
@@ -786,7 +784,6 @@
       font-weight: 800;
     }
   }
-}
 
 .hb-watermark-row {
   display: flex;

@@ -1,3 +1,10 @@
 en:
   theme_metadata:
     description: "UI (theme component) for the Discourse Media Plugin. Provides /media-library page."
+
+  hb_media:
+    like: "Like"
+    unlike: "Unlike"
+    uploaded_by: "Uploaded by:"
+    uploaded_on: "Uploaded on:"
+    type: "Type:"
