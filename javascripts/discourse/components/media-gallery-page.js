@@ -139,6 +139,7 @@ export default class MediaGalleryPage extends Component {
   @tracked previewRetryCount = 0;
   @tracked previewAspect = null;
   @tracked previewAr = 1;
+  @tracked previewPlayerMaxW = null;
 
   // Delete confirmation modal
   @tracked deleteOpen = false;
@@ -147,6 +148,8 @@ export default class MediaGalleryPage extends Component {
 
   _pollTimer = null;
   _boundDocClick = null;
+  _boundResize = null;
+  _previewMeasureRaf = null;
 
   _destroyed = false;
 
@@ -163,6 +166,9 @@ export default class MediaGalleryPage extends Component {
 
     this._boundDocClick = (e) => this.onDocumentClick(e);
     document.addEventListener("click", this._boundDocClick);
+
+    this._boundResize = () => this.onWindowResize();
+    window.addEventListener("resize", this._boundResize);
 
     this.refresh();
     this.loadMediaConfig();
@@ -196,6 +202,11 @@ export default class MediaGalleryPage extends Component {
     if (this._boundDocClick) {
       document.removeEventListener("click", this._boundDocClick);
       this._boundDocClick = null;
+    }
+
+    if (this._boundResize) {
+      window.removeEventListener("resize", this._boundResize);
+      this._boundResize = null;
     }
   }
 
@@ -1120,6 +1131,10 @@ get previewPlayerStyle() {
 
   let style = `--hb-media-ar: ${safeAr};`;
 
+  if (this.previewPlayerMaxW) {
+    style += ` --hb-player-max-w: ${this.previewPlayerMaxW}px;`;
+  }
+
   // For images we add an "ambient" blurred background behind the media
   if (this.previewItem?.media_type === "image" && this.previewStreamUrl) {
     const safeUrl = String(this.previewStreamUrl).replace(/"/g, '\\"');
@@ -1143,16 +1158,74 @@ _setPreviewAspect(width, height) {
   else this.previewAspect = "square";
 }
 
+
+  _schedulePreviewMeasure() {
+    if (!this.previewOpen) return;
+
+    if (this._previewMeasureRaf) {
+      cancelAnimationFrame(this._previewMeasureRaf);
+      this._previewMeasureRaf = null;
+    }
+
+    this._previewMeasureRaf = requestAnimationFrame(() => {
+      this._previewMeasureRaf = null;
+      this._measurePreviewPlayerMaxW();
+    });
+  }
+
+  _measurePreviewPlayerMaxW() {
+    // Measure the available width for the media column so the player never overlaps the right panel.
+    const previewEl = document.querySelector(".hb-media-library-modal .hb-media-preview");
+    const mediaEl = previewEl?.querySelector?.(".hb-media-preview__media");
+    if (!previewEl || !mediaEl) return;
+
+    const panelEl = previewEl.querySelector(".hb-media-preview__panel");
+    const previewRect = previewEl.getBoundingClientRect();
+    const previewStyle = window.getComputedStyle(previewEl);
+    const gap = parseFloat(previewStyle.columnGap) || 0;
+
+    let availableW = previewRect.width;
+
+    // If we're in two-column layout, subtract the panel width.
+    if (panelEl) {
+      const panelRect = panelEl.getBoundingClientRect();
+      const cols = (previewStyle.gridTemplateColumns || "").trim().split(/\s+/);
+
+      if (cols.length > 1 && panelRect.width > 0) {
+        availableW = Math.max(240, Math.floor(previewRect.width - panelRect.width - gap));
+      }
+    }
+
+    const mediaStyle = window.getComputedStyle(mediaEl);
+    const padLeft = parseFloat(mediaStyle.paddingLeft) || 0;
+    const padRight = parseFloat(mediaStyle.paddingRight) || 0;
+
+    const maxW = Math.max(240, Math.floor(availableW - padLeft - padRight));
+
+    if (this.previewPlayerMaxW !== maxW) {
+      this.previewPlayerMaxW = maxW;
+    }
+  }
+
+
+  @action
+  onWindowResize() {
+    if (!this.previewOpen) return;
+    this._schedulePreviewMeasure();
+  }
+
 @action
 onPreviewImageLoad(e) {
   const img = e?.target;
   this._setPreviewAspect(img?.naturalWidth, img?.naturalHeight);
+  this._schedulePreviewMeasure();
 }
 
 @action
 onPreviewVideoMeta(e) {
   const v = e?.target;
   this._setPreviewAspect(v?.videoWidth, v?.videoHeight);
+  this._schedulePreviewMeasure();
 }
 
 @action
@@ -1198,7 +1271,10 @@ toggleImageFullscreen(e) {
     this.previewRetryCount = 0;
     this.previewAspect = null;
     this.previewAr = 1;
+    this.previewPlayerMaxW = null;
     this.errorMessage = null;
+
+    this._schedulePreviewMeasure();
 
     try {
       await this.fetchPreviewStreamUrl({ resetRetry: true });
@@ -1206,6 +1282,7 @@ toggleImageFullscreen(e) {
       this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
     } finally {
       this.previewLoading = false;
+      this._schedulePreviewMeasure();
     }
   }
 
@@ -1218,6 +1295,12 @@ toggleImageFullscreen(e) {
     this.previewRetryCount = 0;
     this.previewAspect = null;
     this.previewAr = 1;
+    this.previewPlayerMaxW = null;
+
+    if (this._previewMeasureRaf) {
+      cancelAnimationFrame(this._previewMeasureRaf);
+      this._previewMeasureRaf = null;
+    }
   }
 
   @action

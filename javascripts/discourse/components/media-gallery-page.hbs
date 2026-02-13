@@ -537,7 +537,7 @@
             <p>{{i18n "loading"}}</p>
           {{else}}
             <div class="hb-media-preview">
-              <div class="hb-media-preview__media">
+              <div class={{concat "hb-media-preview__media " (if (or (eq this.previewItem.media_type "video") (eq this.previewItem.media_type "audio")) "has-controls" "")}}>
                 <div class={{concat "hb-media-preview__player " this.previewAspectClass}} style={{this.previewPlayerStyle}}>
                   {{#if (eq this.previewItem.media_type "image")}}
                     <img alt="" src={{this.previewStreamUrl}} {{on "load" this.onPreviewImageLoad}} {{on "dblclick" this.toggleImageFullscreen}} />
@@ -580,7 +580,7 @@
 
                     {{#if this.previewItem.created_at}}
                       <span class="hb-media-preview__metaItem">
-                        {{d-icon "calendar-alt"}}
+                        {{d-icon "calendar"}}
                         {{this.formatCreatedAt this.previewItem.created_at}}
                       </span>
                     {{/if}}

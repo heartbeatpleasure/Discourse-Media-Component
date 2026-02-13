@@ -493,7 +493,7 @@
 
   .hb-media-library-row__footerBadges {
     margin-top: auto; /* pins tags/gender to bottom of row (desktop) */
-    padding-top: 0.35rem;
+    padding-top: 0.75rem;
     padding-bottom: 4px; /* nudge tags/gender up a few px */
   }
 
@@ -869,10 +869,11 @@
   .hb-media-preview {
     --hb-preview-panel-w: clamp(280px, 30vw, 380px);
     display: grid;
-    grid-template-columns: auto var(--hb-preview-panel-w);
+    grid-template-columns: minmax(0, max-content) var(--hb-preview-panel-w);
     gap: 1rem;
     align-items: start;
     justify-content: start;
+    max-width: 100%;
 
     @media (max-width: 900px) {
       --hb-preview-panel-w: 0px;
@@ -889,14 +890,26 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+    position: relative;
   }
 
+  /* Like button floats in the bottom-right corner of the media card (no extra space used) */
   .hb-media-preview__mediaActions {
-    margin-top: 0.5rem;
-    width: 100%;
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    width: auto;
+    margin: 0;
     display: flex;
     justify-content: flex-end;
+    z-index: 4;
   }
+
+  /* Avoid overlapping the video/audio controls */
+  .hb-media-preview__media.has-controls .hb-media-preview__mediaActions {
+    bottom: 3.25rem;
+  }
+
 .hb-media-preview__player {
   /* Use the actual aspect ratio (set from JS) so there are no ugly side bars */
   --hb-ar: var(--hb-media-ar, 1);
@@ -1007,7 +1020,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
-    padding-top: 0.35rem;
+    padding-top: 0.75rem;
   }
 
   .hb-media-preview__titleRow {
