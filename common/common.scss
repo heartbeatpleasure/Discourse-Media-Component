@@ -805,12 +805,26 @@
   }
 }
 
+
+.hb-media-library-page .hb-media-library-form-grid .hb-field.hb-watermark-field {
+  /* Space between the 'Watermark' label and the first control */
+  gap: 10px;
+}
+
+.hb-watermark-text {
+  /* Ensure 'Apply watermark' and 'Watermark option' match exactly */
+  font-weight: 600;
+  color: var(--primary-medium);
+  font-size: var(--font-down-0);
+  line-height: 1.2;
+}
+
 .hb-watermark-row {
   /* Keep watermark UI consistent with the other form fields */
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.75rem;
+  gap: 8px;
   margin-top: 0;
 }
 
@@ -820,12 +834,6 @@
   flex-direction: row-reverse;
   justify-content: flex-end;
   gap: 10px;
-
-  /* Match the watermark option label style (no input-like box) */
-  font-weight: 600;
-  color: var(--primary-medium);
-  font-size: var(--font-down-0);
-  line-height: 1.2;
 
   padding: 0;
   border: 0;
@@ -858,9 +866,6 @@
   justify-content: flex-start;
 
   .hb-watermark-preset__label {
-    font-weight: 600;
-    color: var(--primary-medium);
-    font-size: var(--font-down-0);
     white-space: normal;
   }
 
@@ -870,6 +875,7 @@
 }
 
 .hb-authorization-checkbox {
+
   border: 1px solid var(--primary-low);
   border-radius: 10px;
   background: var(--secondary);
