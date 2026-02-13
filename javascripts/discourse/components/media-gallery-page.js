@@ -2,6 +2,7 @@
 import Component from "@glimmer/component";
 import { tracked } from "@glimmer/tracking";
 import { action } from "@ember/object";
+import { htmlSafe } from "@ember/template";
 import { inject as service } from "@ember/service";
 import { ajax } from "discourse/lib/ajax";
 import I18n from "I18n";
@@ -136,6 +137,7 @@ export default class MediaGalleryPage extends Component {
   @tracked previewStreamUrl = null;
   @tracked previewLoading = false;
   @tracked previewRetryCount = 0;
+  @tracked previewAspect = null;
 
   // Delete confirmation modal
   @tracked deleteOpen = false;
@@ -1104,6 +1106,68 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   // Preview (token refresh on error)
   // -----------------------
+
+// Preview sizing + fullscreen helpers
+get previewAspectClass() {
+  return this.previewAspect ? `is-${this.previewAspect}` : "";
+}
+
+get previewPlayerStyle() {
+  // For images we add an "ambient" blurred background behind the media
+  if (this.previewItem?.media_type === "image" && this.previewStreamUrl) {
+    const safeUrl = String(this.previewStreamUrl).replace(/"/g, '\"');
+    return htmlSafe(`--hb-preview-bg: url("${safeUrl}");`);
+  }
+  return null;
+}
+
+_setPreviewAspect(width, height) {
+  const w = Number(width);
+  const h = Number(height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+
+  const ratio = w / h;
+
+  // A little fuzzy on purpose so "almost square" doesn't jump around
+  if (ratio > 1.12) this.previewAspect = "landscape";
+  else if (ratio < 0.88) this.previewAspect = "portrait";
+  else this.previewAspect = "square";
+}
+
+@action
+onPreviewImageLoad(e) {
+  const img = e?.target;
+  this._setPreviewAspect(img?.naturalWidth, img?.naturalHeight);
+}
+
+@action
+onPreviewVideoMeta(e) {
+  const v = e?.target;
+  this._setPreviewAspect(v?.videoWidth, v?.videoHeight);
+}
+
+@action
+toggleImageFullscreen(e) {
+  // Images only: double click zooms fullscreen
+  const player = e?.target?.closest?.(".hb-media-preview__player");
+  if (!player) return;
+
+  const doc = document;
+  const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+
+  if (fsEl) {
+    doc.exitFullscreen?.() ||
+      doc.webkitExitFullscreen?.() ||
+      doc.mozCancelFullScreen?.() ||
+      doc.msExitFullscreen?.();
+    return;
+  }
+
+  player.requestFullscreen?.() ||
+    player.webkitRequestFullscreen?.() ||
+    player.mozRequestFullScreen?.() ||
+    player.msRequestFullscreen?.();
+}
   async fetchPreviewStreamUrl({ resetRetry } = { resetRetry: false }) {
     if (!this.previewItem?.public_id) return;
 
@@ -1123,6 +1187,7 @@ export default class MediaGalleryPage extends Component {
     this.previewStreamUrl = null;
     this.previewLoading = true;
     this.previewRetryCount = 0;
+    this.previewAspect = null;
     this.errorMessage = null;
 
     try {
@@ -1141,6 +1206,7 @@ export default class MediaGalleryPage extends Component {
     this.previewStreamUrl = null;
     this.previewLoading = false;
     this.previewRetryCount = 0;
+    this.previewAspect = null;
   }
 
   @action

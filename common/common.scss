@@ -862,32 +862,103 @@
   }
 
   .hb-media-preview__player {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    /* Use the available viewport height more aggressively */
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  /* Keep things looking good for any aspect ratio */
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #000;
+
+  /* Cap very tall media on small viewports */
+  max-height: var(--hb-media-player-max-h);
+
+  /*
+    Default: let landscape media define the height (prevents big empty bands).
+    For portrait/square we reserve a taller frame so the media can feel "big".
+  */
+  &.is-portrait,
+  &.is-square {
     height: var(--hb-media-player-max-h);
-    max-height: var(--hb-media-player-max-h);
-    position: relative;
-
-    img,
-    video {
-      width: auto;
-      height: auto;
-      max-width: 100%;
-      max-height: 100%;
-      object-fit: contain;
-      border-radius: 14px;
-      background: #000;
-    }
-
-    audio {
-      width: 100%;
-    }
   }
 
-  .hb-media-preview__panel {
+  /* Ambient background (only active when --hb-preview-bg is set, e.g. images) */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: var(--hb-preview-bg);
+    background-size: cover;
+    background-position: center;
+    filter: blur(26px);
+    transform: scale(1.12);
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.42));
+    pointer-events: none;
+  }
+
+  img,
+  video {
+    position: relative;
+    z-index: 1;
+
+    width: auto;
+    height: auto;
+
+    max-width: 100%;
+    max-height: var(--hb-media-player-max-h);
+
+    object-fit: contain;
+    border-radius: 14px;
+    background: #000;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Hint that images can be opened fullscreen */
+  img {
+    cursor: zoom-in;
+  }
+
+  audio {
+    width: 100%;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Fullscreen tweaks (double-click on image) */
+  &:fullscreen,
+  &:-webkit-full-screen {
+    border-radius: 0;
+    background: #000;
+  }
+
+  &:fullscreen::before,
+  &:fullscreen::after,
+  &:-webkit-full-screen::before,
+  &:-webkit-full-screen::after {
+    display: none;
+  }
+
+  &:fullscreen img,
+  &:-webkit-full-screen img {
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    cursor: zoom-out;
+  }
+}
+
+.hb-media-preview__panel {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;

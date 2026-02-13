@@ -540,11 +540,11 @@
           {{else}}
             <div class="hb-media-preview">
               <div class="hb-media-preview__media">
-                <div class="hb-media-preview__player">
+                <div class={{concat "hb-media-preview__player " this.previewAspectClass}} style={{this.previewPlayerStyle}}>
                   {{#if (eq this.previewItem.media_type "image")}}
-                    <img alt="" src={{this.previewStreamUrl}} />
+                    <img alt="" src={{this.previewStreamUrl}} {{on "load" this.onPreviewImageLoad}} {{on "dblclick" this.toggleImageFullscreen}} />
                   {{else if (eq this.previewItem.media_type "video")}}
-                    <video controls src={{this.previewStreamUrl}} {{on "error" this.onPlayerError}}></video>
+                    <video controls src={{this.previewStreamUrl}} {{on "loadedmetadata" this.onPreviewVideoMeta}} {{on "error" this.onPlayerError}}></video>
                   {{else if (eq this.previewItem.media_type "audio")}}
                     <audio controls src={{this.previewStreamUrl}} {{on "error" this.onPlayerError}}></audio>
                   {{/if}}
