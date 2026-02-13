@@ -132,7 +132,7 @@
         </div>
 
         {{#if this.watermarkUiVisible}}
-          <div class="hb-field hb-field--span2 hb-watermark-field">
+          <div class="hb-field hb-field--span2">
             <label class="form-label">{{i18n "media_gallery.watermark.label"}}</label>
 
             <div class="hb-watermark-row">
@@ -144,13 +144,13 @@
                     disabled={{this.watermarkUiDisabled}}
                     {{on "change" this.toggleUploadWatermark}}
                   />
-                  <span class="hb-watermark-text">{{i18n "media_gallery.watermark.apply"}}</span>
+                  <span>{{i18n "media_gallery.watermark.apply"}}</span>
                 </label>
               {{/if}}
 
               {{#if this.watermarkCanChoosePreset}}
                 <div class="hb-watermark-preset">
-                  <span class="hb-watermark-preset__label hb-watermark-text">{{i18n "media_gallery.watermark.preset"}}</span>
+                  <span class="hb-watermark-preset__label">{{i18n "media_gallery.watermark.preset"}}</span>
                   <select
                     value={{this.uploadWatermarkPresetId}}
                     disabled={{or this.watermarkUiDisabled (and this.watermarkCanToggle (not this.uploadWatermarkEnabled))}}
@@ -527,40 +527,106 @@
   {{#if this.previewOpen}}
     <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closePreview}}>
       <div class="hb-media-library-modal" {{on "click" this.stopBackdropClick}}>
-        <div class="hb-media-library-modal-header">
-          <div class="title">{{this.previewItem.title}}</div>
-          <button class="btn btn-default" type="button" {{on "click" this.closePreview}}>
-            {{i18n "media_gallery.close"}}
+        <div class="hb-media-library-modal-header hb-media-library-modal-header--preview">
+          <button class="btn btn-icon hb-media-preview__close" type="button" {{on "click" this.closePreview}}>
+            {{d-icon "times"}}
+            <span class="sr-only">{{i18n "media_gallery.close"}}</span>
           </button>
         </div>
 
-        <div class="hb-media-library-modal-body">
+        <div class="hb-media-library-modal-body hb-media-library-modal-body--preview">
           {{#if this.previewLoading}}
             <p>{{i18n "loading"}}</p>
           {{else}}
-            <div class="player">
-              {{#if (eq this.previewItem.media_type "image")}}
-                <img alt="" src={{this.previewStreamUrl}} />
-              {{else if (eq this.previewItem.media_type "video")}}
-                <video controls src={{this.previewStreamUrl}} {{on "error" this.onPlayerError}}></video>
-              {{else if (eq this.previewItem.media_type "audio")}}
-                <audio controls src={{this.previewStreamUrl}} {{on "error" this.onPlayerError}}></audio>
-              {{/if}}
-            </div>
+            <div class="hb-media-preview">
+              <div class="hb-media-preview__media">
+                <div class="hb-media-preview__player">
+                  {{#if (eq this.previewItem.media_type "image")}}
+                    <img alt="" src={{this.previewStreamUrl}} />
+                  {{else if (eq this.previewItem.media_type "video")}}
+                    <video controls src={{this.previewStreamUrl}} {{on "error" this.onPlayerError}}></video>
+                  {{else if (eq this.previewItem.media_type "audio")}}
+                    <audio controls src={{this.previewStreamUrl}} {{on "error" this.onPlayerError}}></audio>
+                  {{/if}}
+                </div>
+              </div>
 
-            <div class="details">
-              {{#if this.previewItem.description}}
-                <div>{{this.previewItem.description}}</div>
-              {{/if}}
+              <div class="hb-media-preview__panel">
+                <div class="hb-media-preview__panelHeader">
+                  <div class="hb-media-preview__titleRow">
+                    <div class="hb-media-preview__title">{{this.previewItem.title}}</div>
 
-              <div>
-                <strong>
-                  <a href={{concat "/u/" this.previewItem.uploader_username}}>
-                    {{this.previewItem.uploader_username}}
-                  </a>
-                </strong>
-                · {{this.previewItem.views_count}} {{i18n "media_gallery.views"}}
-                · {{this.previewItem.likes_count}} {{i18n "media_gallery.likes"}}
+                    <button
+                      class={{concat "hb-media-like hb-media-like--lg " (if this.previewItem.liked "is-liked " "") (if this.previewItem._likePending "is-pending" "")}}
+                      type="button"
+                      disabled={{this.previewItem._likePending}}
+                      aria-label={{if this.previewItem.liked "Unlike" "Like"}}
+                      {{on "click" (fn this.toggleLike this.previewItem)}}
+                    >
+                      <span class="hb-media-like__count">{{this.previewItem.likes_count}}</span>
+                      {{d-icon (if this.previewItem.liked "heart" "far-heart")}}
+                    </button>
+                  </div>
+
+                  <div class="hb-media-preview__meta">
+                    {{#if this.previewItem.uploader_username}}
+                      <span class="hb-media-preview__metaItem">
+                        {{d-icon "user"}}
+                        <a href={{concat "/u/" (this.cleanUsername this.previewItem.uploader_username)}}>
+                          {{this.cleanUsername this.previewItem.uploader_username}}
+                        </a>
+                      </span>
+                    {{/if}}
+
+                    {{#if this.previewItem.created_at}}
+                      <span class="hb-media-preview__metaItem">
+                        {{d-icon "calendar"}}
+                        {{this.formatCreatedAt this.previewItem.created_at}}
+                      </span>
+                    {{/if}}
+
+                    {{#if this.previewItem.media_type}}
+                      <span class="hb-media-preview__metaItem">
+                        {{d-icon "file"}}
+                        {{this.prettyMediaType this.previewItem.media_type}}
+                      </span>
+                    {{/if}}
+
+                    <span class="hb-media-preview__metaItem">
+                      {{d-icon "eye"}}
+                      {{this.previewItem.views_count}} {{i18n "media_gallery.views"}}
+                    </span>
+                  </div>
+
+                  {{#if (or this.previewItem.gender this.previewItem.tags (and this.isMine this.previewItem.status))}}
+                    <div class="hb-media-preview__badges">
+                      {{#if (and this.isMine this.previewItem.status)}}
+                        <span
+                          class={{concat
+                            "hb-media-library-badge "
+                            (if (eq this.previewItem.status "ready") "hb-media-library-badge--ok" (if (eq this.previewItem.status "failed") "hb-media-library-badge--warn" ""))
+                          }}
+                        >
+                          {{this.previewItem.status}}
+                        </span>
+                      {{/if}}
+
+                      {{#if this.previewItem.gender}}
+                        <span class="hb-media-library-badge">{{this.prettyGender this.previewItem.gender}}</span>
+                      {{/if}}
+
+                      {{#if this.previewItem.tags}}
+                        {{#each this.previewItem.tags as |t|}}
+                          <span class="hb-media-library-badge">{{t}}</span>
+                        {{/each}}
+                      {{/if}}
+                    </div>
+                  {{/if}}
+                </div>
+
+                {{#if this.previewItem.description}}
+                  <div class="hb-media-preview__description">{{this.previewItem.description}}</div>
+                {{/if}}
               </div>
             </div>
           {{/if}}

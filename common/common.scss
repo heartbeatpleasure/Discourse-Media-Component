@@ -733,7 +733,7 @@
   }
 
   .hb-media-library-modal {
-    width: min(960px, 100%);
+    width: min(1120px, 100%);
     background: var(--secondary);
     border-radius: 14px;
     overflow: hidden;
@@ -757,6 +757,29 @@
       font-weight: 900;
       font-size: var(--font-up-2);
       margin: 0;
+    }
+  }
+
+  /* Preview modal uses a simple icon-only header */
+  .hb-media-library-modal-header--preview {
+    justify-content: flex-end;
+    padding: 0.5rem 0.75rem;
+
+    .hb-media-preview__close {
+      margin: 0;
+      border-radius: 999px;
+      padding: 0.35rem 0.55rem;
+      background: var(--primary-very-low);
+      border: 1px solid var(--primary-low);
+      line-height: 1;
+
+      .d-icon {
+        margin: 0;
+      }
+
+      &:hover {
+        background: var(--primary-low);
+      }
     }
   }
 
@@ -803,20 +826,130 @@
       font-weight: 800;
     }
   }
-}
 
+  .hb-media-library-modal-body--preview {
+    padding: 0.75rem 1rem 1rem;
+  }
 
-.hb-media-library-page .hb-media-library-form-grid .hb-field.hb-watermark-field {
-  /* Space between the 'Watermark' label and the first control */
-  gap: 10px;
-}
+  /* Modern, two-column preview layout (responsive) */
+  .hb-media-preview {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 1rem;
+    align-items: start;
 
-.hb-watermark-text {
-  /* Ensure 'Apply watermark' and 'Watermark option' match exactly */
-  font-weight: 600;
-  color: var(--primary-medium);
-  font-size: var(--font-down-0);
-  line-height: 1.2;
+    @media (max-width: 900px) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .hb-media-preview__media {
+    background: var(--primary-very-low);
+    border: 1px solid var(--primary-low);
+    border-radius: 16px;
+    padding: 0.75rem;
+    min-width: 0;
+  }
+
+  .hb-media-preview__player {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    max-height: 72vh;
+
+    img,
+    video {
+      width: 100%;
+      height: auto;
+      max-width: 100%;
+      max-height: 72vh;
+      object-fit: contain;
+      border-radius: 14px;
+      background: #000;
+    }
+
+    audio {
+      width: 100%;
+    }
+  }
+
+  .hb-media-preview__panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .hb-media-preview__panelHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .hb-media-preview__titleRow {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .hb-media-preview__title {
+    font-weight: 900;
+    font-size: var(--font-up-3);
+    line-height: 1.2;
+    word-break: break-word;
+  }
+
+  .hb-media-preview__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    color: var(--primary-medium);
+    font-size: var(--font-down-1);
+  }
+
+  .hb-media-preview__metaItem {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+
+    .d-icon {
+      color: var(--primary-medium);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: underline;
+    }
+  }
+
+  .hb-media-preview__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .hb-media-preview__description {
+    background: var(--primary-very-low);
+    border: 1px solid var(--primary-low);
+    border-radius: 14px;
+    padding: 0.85rem;
+    line-height: 1.5;
+    color: var(--primary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .hb-media-like--lg {
+    padding: 0.45rem 0.7rem;
+    border-radius: 999px;
+    font-size: var(--font-up-1);
+
+    .hb-media-like__count {
+      font-size: var(--font-up-0);
+    }
+  }
 }
 
 .hb-watermark-row {
@@ -824,7 +957,7 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 14px;
+  gap: 0.75rem;
   margin-top: 0;
 }
 
@@ -834,6 +967,12 @@
   flex-direction: row-reverse;
   justify-content: flex-end;
   gap: 10px;
+
+  /* Match the watermark option label style (no input-like box) */
+  font-weight: 600;
+  color: var(--primary-medium);
+  font-size: var(--font-down-0);
+  line-height: 1.2;
 
   padding: 0;
   border: 0;
@@ -866,6 +1005,9 @@
   justify-content: flex-start;
 
   .hb-watermark-preset__label {
+    font-weight: 600;
+    color: var(--primary-medium);
+    font-size: var(--font-down-0);
     white-space: normal;
   }
 
@@ -875,7 +1017,6 @@
 }
 
 .hb-authorization-checkbox {
-
   border: 1px solid var(--primary-low);
   border-radius: 10px;
   background: var(--secondary);

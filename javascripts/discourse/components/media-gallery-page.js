@@ -1055,6 +1055,11 @@ export default class MediaGalleryPage extends Component {
       updated,
       ...this.items.slice(idx + 1),
     ];
+
+    // Keep the preview panel in sync (previewItem is a separate tracked reference).
+    if (this.previewOpen && this.previewItem?.public_id === publicId) {
+      this.previewItem = updated;
+    }
   }
 
   @action
