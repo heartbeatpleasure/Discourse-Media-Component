@@ -476,6 +476,7 @@
   .hb-media-library-row__footerBadges {
     margin-top: auto; /* pins tags/gender to bottom of row (desktop) */
     padding-top: 0.35rem;
+    padding-bottom: 4px; /* nudge tags/gender up a few px */
   }
 
   /* Shared pills/badges (used in list rows and modals) */
@@ -541,7 +542,7 @@
   /* Keep count grey even when liked */
   .hb-media-like.is-liked .hb-media-like__count {
     color: var(--primary-medium);
-  }  }
+  }
 
   .right-actions {
     display: flex;
@@ -784,6 +785,7 @@
       font-weight: 800;
     }
   }
+}
 
 .hb-watermark-row {
   display: flex;

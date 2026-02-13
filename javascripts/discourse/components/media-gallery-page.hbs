@@ -322,7 +322,7 @@
   {{else}}
     {{#if (gt this.items.length 0)}}
       <div class="hb-media-library-list">
-        {{#each this.items as |item|}}
+        {{#each this.items key="public_id" as |item|}}
           <article class="hb-media-library-row">
             <button
               class="hb-media-library-row__thumbBtn"

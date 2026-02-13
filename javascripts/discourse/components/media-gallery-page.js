@@ -1007,10 +1007,19 @@ export default class MediaGalleryPage extends Component {
   // Like / Unlike
   // -----------------------
   _updateItemByPublicId(publicId, updates) {
-    if (!publicId) return;
-    this.items = (this.items || []).map((it) =>
-      it?.public_id === publicId ? { ...it, ...updates } : it
-    );
+    if (!publicId || !this.items?.length) return;
+
+    const idx = this.items.findIndex((it) => it?.public_id === publicId);
+    if (idx === -1) return;
+
+    const updated = { ...this.items[idx], ...updates };
+
+    // Reassign array to trigger tracking, but keep other row DOM stable (keyed by public_id).
+    this.items = [
+      ...this.items.slice(0, idx),
+      updated,
+      ...this.items.slice(idx + 1),
+    ];
   }
 
   @action
