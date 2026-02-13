@@ -64,6 +64,24 @@
       textarea,
       select {
         width: 100%;
+        border: 1px solid var(--primary-low);
+        border-radius: 10px;
+        background: var(--secondary);
+        color: var(--primary);
+        padding: 0.55rem 0.65rem;
+        font-size: var(--font-up-0);
+
+        &:focus {
+          outline: none;
+          border-color: var(--tertiary);
+          box-shadow: 0 0 0 2px rgba(var(--tertiary-rgb, 0, 0, 0), 0.2);
+        }
+      }
+
+      select {
+        min-height: 2.4rem;
+        padding-top: 0.45rem;
+        padding-bottom: 0.45rem;
       }
 
       textarea {
@@ -134,8 +152,8 @@
       border: 1px solid var(--primary-low);
       border-radius: 10px;
       background: var(--secondary);
-      padding: 0.35rem 0.35rem;
-      min-height: 2.25rem;
+      padding: 0.25rem 0.3rem;
+      min-height: 2.15rem;
 
       &:focus-within {
         border-color: var(--tertiary);
@@ -190,7 +208,7 @@
       background: transparent;
       min-width: 140px;
       flex: 1 1 160px;
-      padding: 0.25rem 0.2rem;
+      padding: 0.2rem 0.2rem;
       font-size: var(--font-up-0);
     }
 
@@ -789,9 +807,14 @@
 
 .hb-watermark-row {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
+}
+
+.hb-watermark-toggle {
+  flex: 0 0 auto;
 }
 
 .hb-checkbox {
@@ -804,8 +827,24 @@
   }
 }
 
-.hb-watermark-preset select {
-  min-width: 220px;
+.hb-watermark-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 320px;
+  justify-content: flex-end;
+  min-width: 240px;
+
+  .hb-watermark-preset__label {
+    font-weight: 700;
+    color: var(--primary-medium);
+    font-size: var(--font-down-1);
+    white-space: nowrap;
+  }
+
+  select {
+    min-width: 220px;
+  }
 }
 
 .hb-muted {

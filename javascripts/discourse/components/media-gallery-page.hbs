@@ -44,7 +44,7 @@
       <div class="hb-media-library-panel-title">Upload</div>
 
       <div class="hb-media-library-form-grid">
-        <div class="hb-field">
+        <div class="hb-field hb-field--span2">
           <label class="form-label">{{i18n "media_gallery.pick_file"}}</label>
           <div class="hb-file-picker">
             <input
@@ -56,7 +56,7 @@
             />
 
             <label class="btn btn-default hb-file-picker__btn" for="hb-media-upload-file">
-              {{i18n "media_gallery.pick_file"}}
+              Browse…
             </label>
 
             {{#if this.uploadFile}}
@@ -67,7 +67,7 @@
           </div>
         </div>
 
-        <div class="hb-field">
+        <div class="hb-field hb-field--span2">
           <label class="form-label">{{i18n "media_gallery.title_label"}}</label>
           <input type="text" value={{this.uploadTitle}} {{on "input" this.setUploadTitle}} />
         </div>
@@ -124,53 +124,52 @@
           </div>
         </div>
 
-      {{#if this.watermarkUiVisible}}
-        <div class="hb-field hb-field--span2">
-          <label class="form-label">{{i18n "media_gallery.watermark.label"}}</label>
+        {{#if this.watermarkUiVisible}}
+          <div class="hb-field hb-field--span2">
+            <label class="form-label">{{i18n "media_gallery.watermark.label"}}</label>
 
-        <div class="hb-watermark-row">
-          {{#if this.watermarkCanToggle}}
-          <label class="hb-checkbox">
-            <input
-              type="checkbox"
-              checked={{this.uploadWatermarkEnabled}}
-              disabled={{this.watermarkUiDisabled}}
-             {{on "change" this.toggleUploadWatermark}}
-            />
-          <span>{{i18n "media_gallery.watermark.apply"}}</span>
-        </label>
-      {{/if}}
-
-      {{#if this.watermarkCanChoosePreset}}
-        <div class="hb-watermark-preset">
-          <label class="form-label">{{i18n "media_gallery.watermark.preset"}}</label>
-          <select
-            value={{this.uploadWatermarkPresetId}}
-            disabled={{or this.watermarkUiDisabled (and this.watermarkCanToggle (not this.uploadWatermarkEnabled))}}
-            {{on "change" this.setUploadWatermarkPreset}}
-          >
-            <option value="">
-              {{i18n "media_gallery.watermark.preset_default"}}
-              {{#if this.watermarkDefaultLabel}}
-                ({{this.watermarkDefaultLabel}})
+            <div class="hb-watermark-row">
+              {{#if this.watermarkCanToggle}}
+                <label class="hb-checkbox hb-watermark-toggle">
+                  <input
+                    type="checkbox"
+                    checked={{this.uploadWatermarkEnabled}}
+                    disabled={{this.watermarkUiDisabled}}
+                    {{on "change" this.toggleUploadWatermark}}
+                  />
+                  <span>{{i18n "media_gallery.watermark.apply"}}</span>
+                </label>
               {{/if}}
-            </option>
-            {{#each this.watermarkPresets as |p|}}
-              <option value={{p.id}}>{{p.label}}</option>
-            {{/each}}
-          </select>
 
-        </div>
-      {{/if}}
+              {{#if this.watermarkCanChoosePreset}}
+                <div class="hb-watermark-preset">
+                  <span class="hb-watermark-preset__label">{{i18n "media_gallery.watermark.preset"}}</span>
+                  <select
+                    value={{this.uploadWatermarkPresetId}}
+                    disabled={{or this.watermarkUiDisabled (and this.watermarkCanToggle (not this.uploadWatermarkEnabled))}}
+                    {{on "change" this.setUploadWatermarkPreset}}
+                  >
+                    <option value="">
+                      {{i18n "media_gallery.watermark.preset_default"}}
+                      {{#if this.watermarkDefaultLabel}}
+                        ({{this.watermarkDefaultLabel}})
+                      {{/if}}
+                    </option>
+                    {{#each this.watermarkPresets as |p|}}
+                      <option value={{p.id}}>{{p.label}}</option>
+                    {{/each}}
+                  </select>
+                </div>
+              {{/if}}
+            </div>
 
-      {{#if this.watermarkUiDisabled}}
-        <div class="hb-muted">Watermark applies to video and image uploads only.</div>
-      {{/if}}
-    </div>
-  </div>
-{{/if}}
+            {{#if this.watermarkUiDisabled}}
+              <div class="hb-muted">Watermark applies to video and image uploads only.</div>
+            {{/if}}
+          </div>
+        {{/if}}
 
-        <div class="hb-field">
+        <div class="hb-field hb-field--span2">
           <label class="form-label">{{i18n "media_gallery.gender_label"}}</label>
           <select {{on "change" this.setUploadGender}} value={{this.uploadGender}}>
             <option value="">Select gender</option>
@@ -384,7 +383,7 @@
                     class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
                     type="button"
                     disabled={{item._likePending}}
-                    aria-label={{if item.liked (i18n "hb_media.unlike") (i18n "hb_media.like")}}
+                    aria-label={{if item.liked "Unlike" "Like"}}
                     {{on "click" (fn this.toggleLike item)}}
                   >
                     <span class="hb-media-like__count">{{item.likes_count}}</span>
@@ -415,7 +414,7 @@
 
               <div class="hb-media-library-row__meta">
                 {{#if item.uploader_username}}
-                  <span class="hb-media-library-row__metaLabel">{{i18n "hb_media.uploaded_by"}}</span>
+                  <span class="hb-media-library-row__metaLabel">Uploaded by:</span>
                   <a
                     class="hb-media-library-row__uploader"
                     href={{concat "/u/" (this.cleanUsername item.uploader_username)}}
@@ -425,12 +424,12 @@
                   <span class="hb-media-library-row__sep">·</span>
                 {{/if}}
 
-                <span class="hb-media-library-row__metaLabel">{{i18n "hb_media.type"}}</span>
+                <span class="hb-media-library-row__metaLabel">Type:</span>
                 <span class="hb-media-library-row__metaItem">{{this.prettyMediaType item.media_type}}</span>
 
                 {{#if item.created_at}}
                   <span class="hb-media-library-row__sep">·</span>
-                  <span class="hb-media-library-row__metaLabel">{{i18n "hb_media.uploaded_on"}}</span>
+                  <span class="hb-media-library-row__metaLabel">Uploaded on:</span>
                   <span class="hb-media-library-row__metaItem">{{this.formatCreatedAt item.created_at}}</span>
                 {{/if}}
 
