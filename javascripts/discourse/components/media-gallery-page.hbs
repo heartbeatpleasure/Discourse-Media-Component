@@ -542,9 +542,177 @@
                   {{#if (eq this.previewItem.media_type "image")}}
                     <img alt="" src={{this.previewStreamUrl}} {{on "load" this.onPreviewImageLoad}} {{on "dblclick" this.toggleImageFullscreen}} />
                   {{else if (eq this.previewItem.media_type "video")}}
-                    <video controls src={{this.previewStreamUrl}} {{on "loadedmetadata" this.onPreviewVideoMeta}} {{on "error" this.onPlayerError}}></video>
+                    <div
+                      class="hb-media-player hb-media-player--video"
+                      {{on "contextmenu" this.blockContextMenu}}
+                      {{on "mousedown" this.blockRightMouseDown}}
+                    >
+                      <video
+                        class="hb-media-player__media"
+                        src={{this.previewStreamUrl}}
+                        playsinline
+                        preload="metadata"
+                        disablepictureinpicture
+                        disableremoteplayback
+                        controlsList="nodownload noplaybackrate noremoteplayback"
+                        {{on "loadedmetadata" this.onPreviewVideoMeta}}
+                        {{on "timeupdate" this.onPreviewTimeUpdate}}
+                        {{on "play" this.onPreviewPlay}}
+                        {{on "pause" this.onPreviewPause}}
+                        {{on "ended" this.onPreviewEnded}}
+                        {{on "volumechange" this.onPreviewVolumeChange}}
+                        {{on "error" this.onPlayerError}}
+                      ></video>
+
+                      <div
+                        class="hb-media-player__overlay"
+                        role="button"
+                        tabindex="0"
+                        aria-label={{if this.previewIsPlaying "Pause" "Play"}}
+                        {{on "click" this.togglePreviewPlayback}}
+                        {{on "keydown" this.onOverlayKeydown}}
+                        {{on "contextmenu" this.blockContextMenu}}
+                      ></div>
+
+                      {{#unless this.previewIsPlaying}}
+                        <button
+                          class="hb-media-player__centerBtn"
+                          type="button"
+                          aria-label="Play"
+                          {{on "click" this.togglePreviewPlayback}}
+                        >
+                          {{d-icon "play"}}
+                        </button>
+                      {{/unless}}
+
+                      <div class="hb-media-player__controls" {{on "click" this.stopEvent}} {{on "contextmenu" this.blockContextMenu}}>
+                        <button
+                          class="btn btn-icon hb-media-player__btn"
+                          type="button"
+                          aria-label={{if this.previewIsPlaying "Pause" "Play"}}
+                          {{on "click" this.togglePreviewPlayback}}
+                        >
+                          {{d-icon (if this.previewIsPlaying "pause" "play")}}
+                        </button>
+
+                        <div class="hb-media-player__time" title="Time">
+                          {{this.formatPlaybackTime this.previewCurrentTime}} / {{this.formatPlaybackTime this.previewDuration}}
+                        </div>
+
+                        <input
+                          class="hb-media-player__seek"
+                          type="range"
+                          min="0"
+                          max={{this.previewDuration}}
+                          step="0.1"
+                          value={{this.previewCurrentTime}}
+                          disabled={{not this.previewHasDuration}}
+                          {{on "input" this.seekPreview}}
+                          {{on "change" this.seekPreview}}
+                          {{on "mousedown" this.stopEvent}}
+                          {{on "touchstart" this.stopEvent}}
+                        />
+
+                        <button
+                          class="btn btn-icon hb-media-player__btn"
+                          type="button"
+                          aria-label={{if this.previewMuted "Unmute" "Mute"}}
+                          {{on "click" this.togglePreviewMute}}
+                        >
+                          {{d-icon (if this.previewMuted "volume-mute" "volume-up")}}
+                        </button>
+
+                        <button
+                          class="btn btn-icon hb-media-player__btn"
+                          type="button"
+                          aria-label={{if this.previewIsFullscreen "Exit fullscreen" "Fullscreen"}}
+                          {{on "click" this.togglePreviewFullscreen}}
+                        >
+                          {{d-icon (if this.previewIsFullscreen "compress" "expand")}}
+                        </button>
+                      </div>
+                    </div>
                   {{else if (eq this.previewItem.media_type "audio")}}
-                    <audio controls src={{this.previewStreamUrl}} {{on "error" this.onPlayerError}}></audio>
+                    <div
+                      class="hb-media-player hb-media-player--audio"
+                      {{on "contextmenu" this.blockContextMenu}}
+                      {{on "mousedown" this.blockRightMouseDown}}
+                    >
+                      <audio
+                        class="hb-media-player__media"
+                        src={{this.previewStreamUrl}}
+                        preload="metadata"
+                        disablepictureinpicture
+                        disableremoteplayback
+                        controlsList="nodownload noplaybackrate noremoteplayback"
+                        {{on "loadedmetadata" this.onPreviewAudioMeta}}
+                        {{on "timeupdate" this.onPreviewTimeUpdate}}
+                        {{on "play" this.onPreviewPlay}}
+                        {{on "pause" this.onPreviewPause}}
+                        {{on "ended" this.onPreviewEnded}}
+                        {{on "volumechange" this.onPreviewVolumeChange}}
+                        {{on "error" this.onPlayerError}}
+                      ></audio>
+
+                      <div
+                        class="hb-media-player__overlay"
+                        role="button"
+                        tabindex="0"
+                        aria-label={{if this.previewIsPlaying "Pause" "Play"}}
+                        {{on "click" this.togglePreviewPlayback}}
+                        {{on "keydown" this.onOverlayKeydown}}
+                        {{on "contextmenu" this.blockContextMenu}}
+                      ></div>
+
+                      {{#unless this.previewIsPlaying}}
+                        <button
+                          class="hb-media-player__centerBtn"
+                          type="button"
+                          aria-label="Play"
+                          {{on "click" this.togglePreviewPlayback}}
+                        >
+                          {{d-icon "play"}}
+                        </button>
+                      {{/unless}}
+
+                      <div class="hb-media-player__controls" {{on "click" this.stopEvent}} {{on "contextmenu" this.blockContextMenu}}>
+                        <button
+                          class="btn btn-icon hb-media-player__btn"
+                          type="button"
+                          aria-label={{if this.previewIsPlaying "Pause" "Play"}}
+                          {{on "click" this.togglePreviewPlayback}}
+                        >
+                          {{d-icon (if this.previewIsPlaying "pause" "play")}}
+                        </button>
+
+                        <div class="hb-media-player__time" title="Time">
+                          {{this.formatPlaybackTime this.previewCurrentTime}} / {{this.formatPlaybackTime this.previewDuration}}
+                        </div>
+
+                        <input
+                          class="hb-media-player__seek"
+                          type="range"
+                          min="0"
+                          max={{this.previewDuration}}
+                          step="0.1"
+                          value={{this.previewCurrentTime}}
+                          disabled={{not this.previewHasDuration}}
+                          {{on "input" this.seekPreview}}
+                          {{on "change" this.seekPreview}}
+                          {{on "mousedown" this.stopEvent}}
+                          {{on "touchstart" this.stopEvent}}
+                        />
+
+                        <button
+                          class="btn btn-icon hb-media-player__btn"
+                          type="button"
+                          aria-label={{if this.previewMuted "Unmute" "Mute"}}
+                          {{on "click" this.togglePreviewMute}}
+                        >
+                          {{d-icon (if this.previewMuted "volume-mute" "volume-up")}}
+                        </button>
+                      </div>
+                    </div>
                   {{/if}}
                 </div>
               </div>

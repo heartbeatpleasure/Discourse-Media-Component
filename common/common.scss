@@ -1007,6 +1007,120 @@
     cursor: zoom-out;
   }
 }
+
+  /* ---------------------------------------------------------------------
+     Custom (non-native) player controls
+
+     Goals:
+     - Avoid the native browser video controls overflow menu ("⋯")
+     - Remove obvious download UI affordances
+     - Block right-click "Save video as" style menus for the vast majority of users
+
+     NOTE: This is not DRM. Determined users can still capture via devtools/network.
+  --------------------------------------------------------------------- */
+
+  .hb-media-player {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+
+    /* Reduce iOS long-press menus */
+    -webkit-touch-callout: none;
+  }
+
+  .hb-media-player__media {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 12px;
+    background: transparent;
+
+    /* Critical: prevent native context-menu/actions from targeting the media element */
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Audio has no visual track; keep the element present but invisible. */
+  .hb-media-player--audio .hb-media-player__media {
+    opacity: 0;
+  }
+
+  .hb-media-player__overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    cursor: pointer;
+    background: transparent;
+    -webkit-touch-callout: none;
+  }
+
+  .hb-media-player__centerBtn {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+    border: 0;
+    border-radius: 999px;
+    padding: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    .d-icon {
+      color: #fff;
+      font-size: 1.25em;
+    }
+  }
+
+  .hb-media-player__controls {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: 0 0 12px 12px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+    color: #fff;
+  }
+
+  .hb-media-player__btn {
+    padding: 0.35rem;
+    margin: 0;
+
+    .d-icon {
+      color: #fff;
+    }
+  }
+
+  .hb-media-player__time {
+    font-size: var(--font-down-2);
+    color: rgba(255, 255, 255, 0.92);
+    white-space: nowrap;
+  }
+
+  .hb-media-player__seek {
+    flex: 1 1 auto;
+    min-width: 80px;
+  }
+
+  /* Make the controls easier to tap on small screens */
+  @media (max-width: 900px) {
+    .hb-media-player__controls {
+      gap: 0.6rem;
+      padding: 0.45rem 0.6rem;
+    }
+  }
   @media (max-width: 900px) {
     .hb-media-preview__player {
       --hb-player-max-w: min(1100px, calc(96vw - 2.5rem));

@@ -141,6 +141,13 @@ export default class MediaGalleryPage extends Component {
   @tracked previewAr = 1;
   @tracked previewPlayerMaxW = null;
 
+  // Preview player state (custom controls)
+  @tracked previewIsPlaying = false;
+  @tracked previewCurrentTime = 0;
+  @tracked previewDuration = 0;
+  @tracked previewMuted = false;
+  @tracked previewIsFullscreen = false;
+
   // Delete confirmation modal
   @tracked deleteOpen = false;
   @tracked deleteItem = null;
@@ -149,7 +156,11 @@ export default class MediaGalleryPage extends Component {
   _pollTimer = null;
   _boundDocClick = null;
   _boundResize = null;
+  _boundFullscreenChange = null;
   _previewMeasureRaf = null;
+
+  _previewMediaEl = null;
+  _previewPlayerEl = null;
 
   _destroyed = false;
 
@@ -169,6 +180,10 @@ export default class MediaGalleryPage extends Component {
 
     this._boundResize = () => this.onWindowResize();
     window.addEventListener("resize", this._boundResize);
+
+    this._boundFullscreenChange = () => this.onFullscreenChange();
+    document.addEventListener("fullscreenchange", this._boundFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", this._boundFullscreenChange);
 
     this.refresh();
     this.loadMediaConfig();
@@ -207,6 +222,12 @@ export default class MediaGalleryPage extends Component {
     if (this._boundResize) {
       window.removeEventListener("resize", this._boundResize);
       this._boundResize = null;
+    }
+
+    if (this._boundFullscreenChange) {
+      document.removeEventListener("fullscreenchange", this._boundFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", this._boundFullscreenChange);
+      this._boundFullscreenChange = null;
     }
   }
 
@@ -382,6 +403,12 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   formatDuration(seconds) {
     return formatDurationSeconds(seconds);
+  }
+
+  // Like the general formatter, but returns 0:00 instead of blank for 0.
+  formatPlaybackTime(seconds) {
+    const out = formatDurationSeconds(seconds);
+    return out || "0:00";
   }
 
   formatCreatedAt(iso) {
@@ -1224,9 +1251,176 @@ onPreviewImageLoad(e) {
 @action
 onPreviewVideoMeta(e) {
   const v = e?.target;
+    this._previewMediaEl = v || null;
+    this._previewPlayerEl = v?.closest?.(".hb-media-preview__player") || null;
+
   this._setPreviewAspect(v?.videoWidth, v?.videoHeight);
+    this.previewDuration = Number.isFinite(v?.duration) ? v.duration : 0;
+    this.previewCurrentTime = Number.isFinite(v?.currentTime) ? v.currentTime : 0;
+    this.previewMuted = !!v?.muted;
+    this.previewIsPlaying = !v?.paused;
   this._schedulePreviewMeasure();
 }
+
+  @action
+  onPreviewAudioMeta(e) {
+    const a = e?.target;
+    this._previewMediaEl = a || null;
+    this._previewPlayerEl = a?.closest?.(".hb-media-preview__player") || null;
+    this.previewDuration = Number.isFinite(a?.duration) ? a.duration : 0;
+    this.previewCurrentTime = Number.isFinite(a?.currentTime) ? a.currentTime : 0;
+    this.previewMuted = !!a?.muted;
+    this.previewIsPlaying = !a?.paused;
+  }
+
+  get previewHasDuration() {
+    return Number.isFinite(this.previewDuration) && this.previewDuration > 0;
+  }
+
+  @action
+  onPreviewTimeUpdate(e) {
+    const el = e?.target;
+    if (!el) return;
+    // Only update from the element if it matches the current preview media.
+    if (this._previewMediaEl && el !== this._previewMediaEl) return;
+    this.previewCurrentTime = Number.isFinite(el.currentTime) ? el.currentTime : 0;
+    if (Number.isFinite(el.duration)) {
+      this.previewDuration = el.duration;
+    }
+  }
+
+  @action
+  onPreviewPlay() {
+    this.previewIsPlaying = true;
+  }
+
+  @action
+  onPreviewPause() {
+    this.previewIsPlaying = false;
+  }
+
+  @action
+  onPreviewEnded() {
+    this.previewIsPlaying = false;
+  }
+
+  @action
+  onPreviewVolumeChange(e) {
+    const el = e?.target;
+    if (!el) return;
+    if (this._previewMediaEl && el !== this._previewMediaEl) return;
+    this.previewMuted = !!el.muted;
+  }
+
+  @action
+  togglePreviewPlayback(e) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+
+    const el = this._previewMediaEl;
+    if (!el) return;
+
+    try {
+      if (el.paused || el.ended) {
+        const p = el.play?.();
+        // Avoid unhandled promise warnings.
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } else {
+        el.pause?.();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  @action
+  seekPreview(e) {
+    const el = this._previewMediaEl;
+    if (!el) return;
+    const v = Number(e?.target?.value);
+    if (!Number.isFinite(v)) return;
+    try {
+      el.currentTime = Math.max(0, v);
+      this.previewCurrentTime = el.currentTime;
+    } catch {
+      // ignore
+    }
+  }
+
+  @action
+  togglePreviewMute(e) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    const el = this._previewMediaEl;
+    if (!el) return;
+    try {
+      el.muted = !el.muted;
+      this.previewMuted = !!el.muted;
+    } catch {
+      // ignore
+    }
+  }
+
+  @action
+  togglePreviewFullscreen(e) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+
+    const doc = document;
+    const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+
+    if (fsEl) {
+      doc.exitFullscreen?.() ||
+        doc.webkitExitFullscreen?.() ||
+        doc.mozCancelFullScreen?.() ||
+        doc.msExitFullscreen?.();
+      return;
+    }
+
+    const target = this._previewPlayerEl || this._previewMediaEl;
+    target?.requestFullscreen?.() ||
+      target?.webkitRequestFullscreen?.() ||
+      target?.mozRequestFullScreen?.() ||
+      target?.msRequestFullscreen?.();
+  }
+
+  @action
+  onFullscreenChange() {
+    const doc = document;
+    const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+    this.previewIsFullscreen = !!fsEl;
+  }
+
+  @action
+  onOverlayKeydown(e) {
+    const k = e?.key;
+    if (k === "Enter" || k === " ") {
+      this.togglePreviewPlayback(e);
+    }
+  }
+
+  @action
+  stopEvent(e) {
+    e?.stopPropagation?.();
+  }
+
+  @action
+  blockContextMenu(e) {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    return false;
+  }
+
+  @action
+  blockRightMouseDown(e) {
+    // button === 2 is right click.
+    if (e?.button === 2) {
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
+      return false;
+    }
+    return true;
+  }
 
 @action
 toggleImageFullscreen(e) {
@@ -1272,6 +1466,14 @@ toggleImageFullscreen(e) {
     this.previewAspect = null;
     this.previewAr = 1;
     this.previewPlayerMaxW = null;
+    this.previewIsPlaying = false;
+    this.previewCurrentTime = 0;
+    this.previewDuration = 0;
+    this.previewMuted = false;
+    this.previewIsFullscreen = false;
+
+    this._previewMediaEl = null;
+    this._previewPlayerEl = null;
     this.errorMessage = null;
 
     this._schedulePreviewMeasure();
@@ -1288,6 +1490,25 @@ toggleImageFullscreen(e) {
 
   @action
   closePreview() {
+    try {
+      this._previewMediaEl?.pause?.();
+    } catch {
+      // ignore
+    }
+
+    try {
+      const doc = document;
+      const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+      if (fsEl) {
+        doc.exitFullscreen?.() ||
+          doc.webkitExitFullscreen?.() ||
+          doc.mozCancelFullScreen?.() ||
+          doc.msExitFullscreen?.();
+      }
+    } catch {
+      // ignore
+    }
+
     this.previewOpen = false;
     this.previewItem = null;
     this.previewStreamUrl = null;
@@ -1296,6 +1517,15 @@ toggleImageFullscreen(e) {
     this.previewAspect = null;
     this.previewAr = 1;
     this.previewPlayerMaxW = null;
+
+    this.previewIsPlaying = false;
+    this.previewCurrentTime = 0;
+    this.previewDuration = 0;
+    this.previewMuted = false;
+    this.previewIsFullscreen = false;
+
+    this._previewMediaEl = null;
+    this._previewPlayerEl = null;
 
     if (this._previewMeasureRaf) {
       cancelAnimationFrame(this._previewMeasureRaf);
