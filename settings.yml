@@ -11,13 +11,3 @@ nav_item_text:
   description:
     en: "Optional custom label for the nav item (empty = use translation)"
     nl: "Optionele eigen label voor de navigatie (leeg = vertaling)"
-
-# Make sure the icons we use are included in Discourse's SVG sprite.
-# This avoids missing icons (e.g. the calendar icon next to the date).
-svg_icons:
-  default: "calendar|calendar-alt|times|heart|far-heart"
-  type: list
-  list_type: compact
-  description:
-    en: "Extra SVG icons required by this component"
-    nl: "Extra SVG iconen die nodig zijn voor dit component"

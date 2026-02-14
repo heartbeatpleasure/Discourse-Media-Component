@@ -3,5 +3,14 @@
   "about_url": "https://github.com/heartbeatpleasure/Discourse-Media-Component",
   "license_url": "https://github.com/heartbeatpleasure/Discourse-Media-Component/blob/main/LICENSE",
   "authors": "Chris",
-  "component": true
+  "component": true,
+  "svg_icons": [
+    "calendar",
+    "calendar-alt",
+    "calendar-days",
+    "times",
+    "xmark",
+    "heart",
+    "far-heart"
+  ]
 }

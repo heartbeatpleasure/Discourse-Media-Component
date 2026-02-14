@@ -873,7 +873,9 @@
     display: grid;
     grid-template-columns: minmax(0, max-content) var(--hb-preview-panel-w);
     gap: 1rem;
-    align-items: start;
+    /* Stretch the right info panel to the same height as the media column
+       so footer actions (like) can be pinned to the bottom. */
+    align-items: stretch;
     justify-content: start;
     max-width: 100%;
 
@@ -1016,6 +1018,9 @@
     flex-direction: column;
     gap: 0.75rem;
     min-width: 0;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .hb-media-preview__panelHeader {
@@ -1088,6 +1093,10 @@
     color: var(--primary);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    /* Keep the like button fixed at the bottom; long descriptions scroll */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
   }
 
   .hb-media-preview__panelFooter {
