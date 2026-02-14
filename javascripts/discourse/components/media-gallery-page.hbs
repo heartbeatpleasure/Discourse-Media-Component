@@ -528,7 +528,7 @@
     <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closePreview}}>
       <div class="hb-media-library-modal" {{on "click" this.stopBackdropClick}}>
         <button class="btn btn-icon hb-media-preview__close" type="button" {{on "click" this.closePreview}}>
-          {{d-icon "xmark"}}
+          {{d-icon "times"}}
           <span class="sr-only">{{i18n "media_gallery.close"}}</span>
         </button>
 
@@ -553,19 +553,6 @@
                 <div class="hb-media-preview__panelHeader">
                   <div class="hb-media-preview__titleRow">
                     <div class="hb-media-preview__title">{{this.previewItem.title}}</div>
-
-                    <div class="hb-media-preview__titleActions">
-                      <button
-                        class={{concat "hb-media-like " (if this.previewItem.liked "is-liked " "") (if this.previewItem._likePending "is-pending" "")}}
-                        type="button"
-                        disabled={{this.previewItem._likePending}}
-                        aria-label={{if this.previewItem.liked "Unlike" "Like"}}
-                        {{on "click" (fn this.toggleLike this.previewItem)}}
-                      >
-                        <span class="hb-media-like__count">{{this.previewItem.likes_count}}</span>
-                        {{d-icon (if this.previewItem.liked "heart" "far-heart")}}
-                      </button>
-                    </div>
                   </div>
 
                   <div class="hb-media-preview__meta">
@@ -627,6 +614,19 @@
                 {{#if this.previewItem.description}}
                   <div class="hb-media-preview__description">{{this.previewItem.description}}</div>
                 {{/if}}
+
+                <div class="hb-media-preview__panelFooter">
+                  <button
+                    class={{concat "hb-media-like hb-media-like--lg " (if this.previewItem.liked "is-liked " "") (if this.previewItem._likePending "is-pending" "")}}
+                    type="button"
+                    disabled={{this.previewItem._likePending}}
+                    aria-label={{if this.previewItem.liked "Unlike" "Like"}}
+                    {{on "click" (fn this.toggleLike this.previewItem)}}
+                  >
+                    <span class="hb-media-like__count">{{this.previewItem.likes_count}}</span>
+                    {{d-icon (if this.previewItem.liked "heart" "far-heart")}}
+                  </button>
+                </div>
               </div>
             </div>
           {{/if}}
