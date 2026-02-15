@@ -1,3 +1,4 @@
+{{#let (theme-setting "audio_placeholder") as |audioPh|}}
 <section class="hb-media-library-page">
   <div class="hb-media-library-header">
     <h1>{{i18n "media_gallery.title"}}</h1>
@@ -371,7 +372,13 @@
               {{on "click" (fn this.openPreview item)}}
             >
               <div class="hb-media-library-row__thumb {{if (or (not (eq item.status "ready")) item._thumbFailed (not item.thumbnail_url)) "hb-media-library-row__thumb--placeholder"}}">
-                {{#if (and (eq item.status "ready") item.thumbnail_url (not item._thumbFailed))}}
+                {{!--
+                  Audio items: always prefer the configured placeholder over the backend's
+                  generic "no thumbnail" image so the UI is consistent.
+                --}}
+                {{#if (and (eq item._hb_media_type "audio") audioPh (eq item.status "ready"))}}
+                  <img alt="" src={{audioPh}} loading="lazy" decoding="async" />
+                {{else if (and (eq item.status "ready") item.thumbnail_url (not item._thumbFailed))}}
                   <img
                     alt=""
                     src={{item.thumbnail_url}}
@@ -383,13 +390,13 @@
                   />
                 {{else}}
                   <span class="hb-media-library-row__thumbLoading">
-                    {{#if (eq item.media_type "audio")}}
+                    {{#if (eq item._hb_media_type "audio")}}
                       <span class="hb-media-library-audio-thumb">
-                        {{#if this.audioPlaceholderUrl}}
+                        {{#if audioPh}}
                           <img
                             class="hb-media-library-audio-thumb__img"
                             alt=""
-                            src={{this.audioPlaceholderUrl}}
+                            src={{audioPh}}
                             loading="lazy"
                             decoding="async"
                           />
@@ -559,9 +566,9 @@
             <p>{{i18n "loading"}}</p>
           {{else}}
             <div class="hb-media-preview">
-              <div class={{concat "hb-media-preview__media " (if (or (eq this.previewItem.media_type "video") (eq this.previewItem.media_type "audio")) "has-controls" "")}}>
+              <div class={{concat "hb-media-preview__media " (if (or (eq this.previewMediaType "video") (eq this.previewMediaType "audio")) "has-controls" "")}}>
                 <div class={{concat "hb-media-preview__player " this.previewAspectClass (if this.previewPseudoFullscreen " is-pseudo-fullscreen" "")}} style={{this.previewPlayerStyle}}>
-                  {{#if (eq this.previewItem.media_type "image")}}
+                  {{#if (eq this.previewMediaType "image")}}
                     <div class="hb-media-preview__imageWrap">
                       <img alt="" src={{this.previewStreamUrl}} {{on "load" this.onPreviewImageLoad}} {{on "dblclick" this.toggleImageFullscreen}} />
 
@@ -592,7 +599,7 @@
                         {{/if}}
                       </button>
                     </div>
-                  {{else if (eq this.previewItem.media_type "video")}}
+                  {{else if (eq this.previewMediaType "video")}}
                     <div
                       class="hb-media-player hb-media-player--video"
                       {{on "contextmenu" this.blockContextMenu}}
@@ -703,14 +710,14 @@
                         </button>
                       </div>
                     </div>
-                  {{else if (eq this.previewItem.media_type "audio")}}
+                  {{else if (eq this.previewMediaType "audio")}}
                     <div
                       class="hb-media-player hb-media-player--audio"
                       {{on "contextmenu" this.blockContextMenu}}
                       {{on "mousedown" this.blockRightMouseDown}}
                     >
-                      {{#if this.audioPlaceholderUrl}}
-                        <img class="hb-media-player__poster" alt="" src={{this.audioPlaceholderUrl}} />
+                      {{#if audioPh}}
+                        <img class="hb-media-player__poster" alt="" src={{audioPh}} />
                       {{/if}}
                       <audio
                         class="hb-media-player__media"
@@ -913,4 +920,6 @@
       </div>
     </div>
   {{/if}}
+
 </section>
+{{/let}}

@@ -108,7 +108,6 @@ function iconAvailable(name) {
 
 export default class MediaGalleryPage extends Component {
   @service currentUser;
-  @service("theme-settings") themeSettings;
 
   // Tabs
   @tracked activeTab = "all"; // all | mine
@@ -201,10 +200,31 @@ export default class MediaGalleryPage extends Component {
   // to avoid repeated failing requests (and noisy console/network errors).
   _tagsBrokenByEndpoint = new Map();
 
-  get audioPlaceholderUrl() {
-    const v = this.themeSettings?.getSetting?.("audio_placeholder");
-    const s = typeof v === "string" ? v.trim() : "";
-    return s.length ? s : null;
+  // Media items from the backend have historically used different keys/values
+  // for type (media_type/type/etc). Normalize once to keep templates robust.
+  _normalizeMediaType(raw) {
+    const s = String(raw || "")
+      .trim()
+      .toLowerCase();
+
+    if (!s) return "";
+    if (s === "img") return "image";
+
+    // Be permissive for future backend variations.
+    if (s.includes("audio")) return "audio";
+    if (s.includes("video")) return "video";
+    if (s.includes("image") || s.includes("photo") || s.includes("picture")) return "image";
+    return s;
+  }
+
+  _decorateItem(item) {
+    if (!item || typeof item !== "object") return item;
+    const mt = this._normalizeMediaType(item.media_type || item.type || item.mediaType);
+    return { ...item, _hb_media_type: mt };
+  }
+
+  get previewMediaType() {
+    return this.previewItem?._hb_media_type || this._normalizeMediaType(this.previewItem?.media_type || this.previewItem?.type);
   }
 
   constructor() {
@@ -1251,7 +1271,7 @@ get previewPlayerStyle() {
   }
 
   // For images we add an "ambient" blurred background behind the media
-  if (this.previewItem?.media_type === "image" && this.previewStreamUrl) {
+  if (this.previewMediaType === "image" && this.previewStreamUrl) {
     const safeUrl = String(this.previewStreamUrl).replace(/"/g, '\\"');
     style += ` --hb-preview-bg: url("${safeUrl}");`;
   }
@@ -1827,6 +1847,9 @@ toggleImageFullscreen(e) {
 
       // Ensure consistent filtering behavior across tabs/endpoints
       media = this._applyClientFilters(media);
+
+      // Normalize per-item media type once (used throughout templates).
+      media = (media || []).map((m) => this._decorateItem(m));
 
       // Apply thumb failure state that survives refresh()
       this._applyThumbFailureState(media);
