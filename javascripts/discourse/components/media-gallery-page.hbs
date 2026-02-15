@@ -385,8 +385,18 @@
                   <span class="hb-media-library-row__thumbLoading">
                     {{#if (eq item.media_type "audio")}}
                       <span class="hb-media-library-audio-thumb">
-                        {{d-icon "music"}}
-                        <span class="hb-media-library-audio-thumb__text">Audio</span>
+                        {{#if this.audioPlaceholderUrl}}
+                          <img
+                            class="hb-media-library-audio-thumb__img"
+                            alt=""
+                            src={{this.audioPlaceholderUrl}}
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        {{else}}
+                          {{d-icon "music"}}
+                          <span class="hb-media-library-audio-thumb__text">Audio</span>
+                        {{/if}}
                       </span>
                     {{else}}
                       {{#if item._thumbFailed}}
@@ -552,7 +562,36 @@
               <div class={{concat "hb-media-preview__media " (if (or (eq this.previewItem.media_type "video") (eq this.previewItem.media_type "audio")) "has-controls" "")}}>
                 <div class={{concat "hb-media-preview__player " this.previewAspectClass (if this.previewPseudoFullscreen " is-pseudo-fullscreen" "")}} style={{this.previewPlayerStyle}}>
                   {{#if (eq this.previewItem.media_type "image")}}
-                    <img alt="" src={{this.previewStreamUrl}} {{on "load" this.onPreviewImageLoad}} {{on "dblclick" this.toggleImageFullscreen}} />
+                    <div class="hb-media-preview__imageWrap">
+                      <img alt="" src={{this.previewStreamUrl}} {{on "load" this.onPreviewImageLoad}} {{on "dblclick" this.toggleImageFullscreen}} />
+
+                      <button
+                        class="hb-media-preview__imgFsBtn"
+                        type="button"
+                        aria-label={{if this.previewFullscreenActive "Exit fullscreen" "Fullscreen"}}
+                        {{on "click" this.toggleImageFullscreen}}
+                      >
+                        {{#if this.previewFullscreenActive}}
+                          <svg class="hb-media-preview__imgFsIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path
+                              fill="currentColor"
+                              d="M9 3H5a2 2 0 0 0-2 2v4h2V5h4V3zm12 0h-4v2h4v4h2V5a2 2 0 0 0-2-2zM5 19v-4H3v4a2 2 0 0 0 2 2h4v-2H5zm16-4v4h-4v2h4a2 2 0 0 0 2-2v-4h-2z"
+                            ></path>
+                            <path
+                              fill="currentColor"
+                              d="M9 9h2V7H7v4h2V9zm8 0v2h2V7h-4v2h2zm-8 8v-2H7v4h4v-2H9zm8 0h-2v2h4v-4h-2v2z"
+                            ></path>
+                          </svg>
+                        {{else}}
+                          <svg class="hb-media-preview__imgFsIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path
+                              fill="currentColor"
+                              d="M9 3H5a2 2 0 0 0-2 2v4h2V5h4V3zm12 0h-4v2h4v4h2V5a2 2 0 0 0-2-2zM5 19v-4H3v4a2 2 0 0 0 2 2h4v-2H5zm16-4v4h-4v2h4a2 2 0 0 0 2-2v-4h-2z"
+                            ></path>
+                          </svg>
+                        {{/if}}
+                      </button>
+                    </div>
                   {{else if (eq this.previewItem.media_type "video")}}
                     <div
                       class="hb-media-player hb-media-player--video"
@@ -670,6 +709,9 @@
                       {{on "contextmenu" this.blockContextMenu}}
                       {{on "mousedown" this.blockRightMouseDown}}
                     >
+                      {{#if this.audioPlaceholderUrl}}
+                        <img class="hb-media-player__poster" alt="" src={{this.audioPlaceholderUrl}} />
+                      {{/if}}
                       <audio
                         class="hb-media-player__media"
                         src={{this.previewStreamUrl}}

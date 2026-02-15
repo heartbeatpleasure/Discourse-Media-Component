@@ -11,3 +11,10 @@ nav_item_text:
   description:
     en: "Optional custom label for the nav item (empty = use translation)"
     nl: "Optionele eigen label voor de navigatie (leeg = vertaling)"
+
+audio_placeholder:
+  default: ""
+  type: upload
+  description:
+    en: "Placeholder image used for audio items when no thumbnail exists (recommended 16:9, e.g. 1600x900)."
+    nl: "Placeholder afbeelding voor audio items zonder thumbnail (aanrader 16:9, bijv. 1600x900)."

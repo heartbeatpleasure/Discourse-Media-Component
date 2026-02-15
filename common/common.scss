@@ -581,6 +581,14 @@
     gap: 0.35rem;
     line-height: 1.1;
 
+    .hb-media-library-audio-thumb__img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      border-radius: 10px;
+    }
+
     .d-icon {
       width: 1.6em;
       height: 1.6em;
@@ -969,6 +977,44 @@
     cursor: zoom-in;
   }
 
+  .hb-media-preview__imageWrap {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
+
+  .hb-media-preview__imgFsBtn {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    border: 0;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 4;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.65);
+    }
+
+    &:active {
+      transform: translateY(1px);
+    }
+  }
+
+  .hb-media-preview__imgFsIcon {
+    width: 1.1em;
+    height: 1.1em;
+    display: block;
+  }
+
   audio {
     width: 100%;
     position: relative;
@@ -1082,6 +1128,25 @@
     opacity: 0;
   }
 
+  /* Optional audio artwork / placeholder image behind the custom controls */
+  .hb-media-player__poster {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 1;
+    border-radius: 12px;
+    pointer-events: none;
+    filter: saturate(0.9);
+  }
+
+  .hb-media-player__overlay,
+  .hb-media-player__centerBtn,
+  .hb-media-player__controls {
+    position: absolute;
+  }
+
   .hb-media-player__overlay {
     position: absolute;
     inset: 0;
@@ -1164,7 +1229,7 @@
   /* Play/Pause glyphs are slightly left-biased; nudge for visual centering */
   .hb-media-player__btn .d-icon-play,
   .hb-media-player__centerBtn .d-icon-play {
-    transform: translateX(2px);
+    transform: translateX(3px);
   }
 
   .hb-media-player__btn .d-icon-pause,

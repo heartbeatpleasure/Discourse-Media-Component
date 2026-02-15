@@ -108,6 +108,7 @@ function iconAvailable(name) {
 
 export default class MediaGalleryPage extends Component {
   @service currentUser;
+  @service("theme-settings") themeSettings;
 
   // Tabs
   @tracked activeTab = "all"; // all | mine
@@ -199,6 +200,12 @@ export default class MediaGalleryPage extends Component {
   // Some endpoints may 500 when receiving a tags parameter. Track per endpoint
   // to avoid repeated failing requests (and noisy console/network errors).
   _tagsBrokenByEndpoint = new Map();
+
+  get audioPlaceholderUrl() {
+    const v = this.themeSettings?.getSetting?.("audio_placeholder");
+    const s = typeof v === "string" ? v.trim() : "";
+    return s.length ? s : null;
+  }
 
   constructor() {
     super(...arguments);
@@ -1372,6 +1379,8 @@ _setPreviewAspect(width, height) {
 @action
 onPreviewImageLoad(e) {
   const img = e?.target;
+  // Cache player wrapper so fullscreen toggling works for images too.
+  this._previewPlayerEl = img?.closest?.(".hb-media-preview__player") || null;
   this._setPreviewAspect(img?.naturalWidth, img?.naturalHeight);
   this._schedulePreviewMeasure();
 }
@@ -1399,6 +1408,10 @@ onPreviewVideoMeta(e) {
     const a = e?.target;
     this._previewMediaEl = a || null;
     this._previewPlayerEl = a?.closest?.(".hb-media-preview__player") || null;
+    // Audio has no intrinsic dimensions; keep preview consistent with thumbnails (16:9)
+    // so the placeholder artwork fits nicely.
+    this._setPreviewAspect(16, 9);
+    this._schedulePreviewMeasure();
     this.previewDuration = Number.isFinite(a?.duration) ? a.duration : 0;
     this.previewCurrentTime = Number.isFinite(a?.currentTime) ? a.currentTime : 0;
     this.previewMuted = !!a?.muted || a?.volume === 0;
@@ -1656,25 +1669,8 @@ onPreviewVideoMeta(e) {
 
 @action
 toggleImageFullscreen(e) {
-  // Images only: double click zooms fullscreen
-  const player = e?.target?.closest?.(".hb-media-preview__player");
-  if (!player) return;
-
-  const doc = document;
-  const fsEl = this._getFullscreenElement();
-
-  if (fsEl) {
-    doc.exitFullscreen?.() ||
-      doc.webkitExitFullscreen?.() ||
-      doc.mozCancelFullScreen?.() ||
-      doc.msExitFullscreen?.();
-    return;
-  }
-
-  player.requestFullscreen?.() ||
-    player.webkitRequestFullscreen?.() ||
-    player.mozRequestFullScreen?.() ||
-    player.msRequestFullscreen?.();
+  // Reuse the shared fullscreen logic (includes pseudo-fullscreen fallback).
+  return this.togglePreviewFullscreen(e);
 }
   async fetchPreviewStreamUrl({ resetRetry } = { resetRetry: false }) {
     if (!this.previewItem?.public_id) return;
