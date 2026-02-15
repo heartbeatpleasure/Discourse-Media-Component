@@ -158,6 +158,7 @@ export default class MediaGalleryPage extends Component {
   @tracked previewItem = null;
   @tracked previewStreamUrl = null;
   @tracked previewLoading = false;
+  @tracked previewStreamLoading = false;
   @tracked previewRetryCount = 0;
   @tracked previewAspect = null;
   @tracked previewAr = 1;
@@ -1482,12 +1483,43 @@ onPreviewVideoMeta(e) {
   }
 
   @action
-  togglePreviewPlayback(e) {
+  async togglePreviewPlayback(e) {
     e?.preventDefault?.();
     e?.stopPropagation?.();
 
     const el = this._previewMediaEl;
     if (!el) return;
+
+    // Delay token creation until the user explicitly presses Play.
+    if (
+      (this.previewMediaType === "video" || this.previewMediaType === "audio") &&
+      !this.previewStreamUrl
+    ) {
+      if (this.previewStreamLoading) return;
+      this.previewStreamLoading = true;
+      this.errorMessage = null;
+
+      try {
+        await this.fetchPreviewStreamUrl({ resetRetry: true });
+      } catch (err) {
+        this.errorMessage =
+          err?.jqXHR?.responseJSON?.errors?.join(", ") || err?.message || "Error";
+      } finally {
+        this.previewStreamLoading = false;
+      }
+
+      // If we now have a src, start playing.
+      if (this.previewStreamUrl) {
+        try {
+          const p = el.play?.();
+          if (p && typeof p.catch === "function") p.catch(() => {});
+        } catch {
+          // ignore
+        }
+      }
+
+      return;
+    }
 
     try {
       if (el.paused || el.ended) {
@@ -1695,10 +1727,45 @@ toggleImageFullscreen(e) {
   async fetchPreviewStreamUrl({ resetRetry } = { resetRetry: false }) {
     if (!this.previewItem?.public_id) return;
 
+    const publicId = this.previewItem.public_id;
+
     if (resetRetry) this.previewRetryCount = 0;
 
-    const res = await ajax(`/media/${this.previewItem.public_id}/play`, { type: "GET" });
-    this.previewStreamUrl = res?.stream_url || null;
+    const res = await ajax(`/media/${publicId}/play`, { type: "GET" });
+
+    // If the preview was closed/switched while awaiting the request, ignore the response.
+    if (!this.previewOpen || this.previewItem?.public_id !== publicId) return;
+    const url = res?.stream_url || null;
+    this.previewStreamUrl = url;
+
+    // Best-effort: if the media element is already mounted, set src directly.
+    // This avoids race conditions when the user clicks play immediately.
+    const el = this._previewMediaEl;
+    if (el && url && (this.previewMediaType === "video" || this.previewMediaType === "audio")) {
+      try {
+        el.src = url;
+        el.preload = "metadata";
+        el.load?.();
+      } catch {
+        // ignore
+      }
+    }
+
+    return url;
+  }
+
+  @action
+  registerPreviewMedia(el) {
+    if (!el) return;
+    this._previewMediaEl = el;
+    this._previewPlayerEl = el?.closest?.(".hb-media-preview__player") || null;
+
+    // Ensure we have a sensible default aspect ratio before metadata is available.
+    if (this.previewMediaType === "video" || this.previewMediaType === "audio") {
+      if (!Number.isFinite(this.previewAr) || this.previewAr === 1) {
+        this._setPreviewAspect(16, 9);
+      }
+    }
   }
 
   @action
@@ -1706,10 +1773,15 @@ toggleImageFullscreen(e) {
     if (!item?.public_id) return;
     if (item.playable === false) return;
 
+    const mt = this._normalizeMediaType(item.media_type || item.type || item.mediaType);
+
     this.previewOpen = true;
     this.previewItem = item;
     this.previewStreamUrl = null;
-    this.previewLoading = true;
+    // Images need the URL immediately to display. For audio/video we defer token creation
+    // until the user explicitly presses Play.
+    this.previewLoading = mt === "image";
+    this.previewStreamLoading = false;
     this.previewRetryCount = 0;
     this.previewAspect = null;
     this.previewAr = 1;
@@ -1725,13 +1797,24 @@ toggleImageFullscreen(e) {
     this._previewPlayerEl = null;
     this.errorMessage = null;
 
+    // Provide a stable default ratio for audio/video so the layout doesn't jump.
+    if (mt === "video" || mt === "audio") {
+      this._setPreviewAspect(16, 9);
+    }
+
     this._schedulePreviewMeasure();
 
-    try {
-      await this.fetchPreviewStreamUrl({ resetRetry: true });
-    } catch (e) {
-      this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
-    } finally {
+    if (mt === "image") {
+      try {
+        await this.fetchPreviewStreamUrl({ resetRetry: true });
+      } catch (e) {
+        this.errorMessage = e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
+      } finally {
+        this.previewLoading = false;
+        this._schedulePreviewMeasure();
+      }
+    } else {
+      // For audio/video: show the player instantly, token will be requested on Play.
       this.previewLoading = false;
       this._schedulePreviewMeasure();
     }
@@ -1741,6 +1824,18 @@ toggleImageFullscreen(e) {
   closePreview() {
     try {
       this._previewMediaEl?.pause?.();
+    } catch {
+      // ignore
+    }
+
+    // Clear src to avoid leaving a stream URL in the DOM after closing.
+    try {
+      const el = this._previewMediaEl;
+      if (el) {
+        el.removeAttribute?.("src");
+        el.src = "";
+        el.load?.();
+      }
     } catch {
       // ignore
     }
@@ -1762,6 +1857,7 @@ toggleImageFullscreen(e) {
     this.previewItem = null;
     this.previewStreamUrl = null;
     this.previewLoading = false;
+    this.previewStreamLoading = false;
     this.previewRetryCount = 0;
     this.previewAspect = null;
     this.previewAr = 1;
@@ -1791,6 +1887,9 @@ toggleImageFullscreen(e) {
   @action
   async onPlayerError() {
     if (!this.previewOpen || !this.previewItem?.public_id) return;
+
+    // If we haven't requested a token yet (audio/video before first play), ignore.
+    if (!this.previewStreamUrl) return;
 
     if (this.previewRetryCount >= 3) return;
     this.previewRetryCount += 1;

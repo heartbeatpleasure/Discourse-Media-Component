@@ -1179,6 +1179,22 @@
     }
   }
 
+  .hb-media-player__spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: rgba(255, 255, 255, 0.95);
+    animation: hb-media-spin 0.9s linear infinite;
+    display: block;
+  }
+
+  @keyframes hb-media-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   .hb-media-player__controls {
     position: absolute;
     left: 0;

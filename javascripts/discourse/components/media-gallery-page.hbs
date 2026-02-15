@@ -605,10 +605,11 @@
                         class="hb-media-player__media"
                         src={{this.previewStreamUrl}}
                         playsinline
-                        preload="metadata"
+                        preload={{if this.previewStreamUrl "metadata" "none"}}
                         disablepictureinpicture
                         disableremoteplayback
                         controlsList="nodownload noplaybackrate noremoteplayback"
+                        {{did-insert this.registerPreviewMedia}}
                         {{on "loadedmetadata" this.onPreviewVideoMeta}}
                         {{on "timeupdate" this.onPreviewTimeUpdate}}
                         {{on "play" this.onPreviewPlay}}
@@ -632,10 +633,15 @@
                         <button
                           class="hb-media-player__centerBtn"
                           type="button"
-                          aria-label="Play"
+                          aria-label={{if this.previewStreamLoading "Loading" "Play"}}
+                          disabled={{this.previewStreamLoading}}
                           {{on "click" this.togglePreviewPlayback}}
                         >
-                          {{d-icon "play"}}
+                          {{#if this.previewStreamLoading}}
+                            <span class="hb-media-player__spinner" aria-hidden="true"></span>
+                          {{else}}
+                            {{d-icon "play"}}
+                          {{/if}}
                         </button>
                       {{/unless}}
 
@@ -644,6 +650,7 @@
                           class="btn btn-icon hb-media-player__btn"
                           type="button"
                           aria-label={{if this.previewIsPlaying "Pause" "Play"}}
+                          disabled={{this.previewStreamLoading}}
                           {{on "click" this.togglePreviewPlayback}}
                         >
                           {{d-icon (if this.previewIsPlaying "pause" "play")}}
@@ -718,10 +725,11 @@
                       <audio
                         class="hb-media-player__media"
                         src={{this.previewStreamUrl}}
-                        preload="metadata"
+                        preload={{if this.previewStreamUrl "metadata" "none"}}
                         disablepictureinpicture
                         disableremoteplayback
                         controlsList="nodownload noplaybackrate noremoteplayback"
+                        {{did-insert this.registerPreviewMedia}}
                         {{on "loadedmetadata" this.onPreviewAudioMeta}}
                         {{on "timeupdate" this.onPreviewTimeUpdate}}
                         {{on "play" this.onPreviewPlay}}
@@ -745,10 +753,15 @@
                         <button
                           class="hb-media-player__centerBtn"
                           type="button"
-                          aria-label="Play"
+                          aria-label={{if this.previewStreamLoading "Loading" "Play"}}
+                          disabled={{this.previewStreamLoading}}
                           {{on "click" this.togglePreviewPlayback}}
                         >
-                          {{d-icon "play"}}
+                          {{#if this.previewStreamLoading}}
+                            <span class="hb-media-player__spinner" aria-hidden="true"></span>
+                          {{else}}
+                            {{d-icon "play"}}
+                          {{/if}}
                         </button>
                       {{/unless}}
 
@@ -757,6 +770,7 @@
                           class="btn btn-icon hb-media-player__btn"
                           type="button"
                           aria-label={{if this.previewIsPlaying "Pause" "Play"}}
+                          disabled={{this.previewStreamLoading}}
                           {{on "click" this.togglePreviewPlayback}}
                         >
                           {{d-icon (if this.previewIsPlaying "pause" "play")}}
