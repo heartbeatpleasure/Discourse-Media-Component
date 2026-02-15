@@ -163,6 +163,9 @@ export default class MediaGalleryPage extends Component {
   @tracked previewAspect = null;
   @tracked previewAr = 1;
   @tracked previewPlayerMaxW = null;
+  // True after the first frame has loaded for video/audio. Used to keep the poster visible
+  // until playback data is available, preventing a white flash / layout jump.
+  @tracked previewHasLoadedData = false;
 
   // Preview player state (custom controls)
   @tracked previewIsPlaying = false;
@@ -1407,6 +1410,22 @@ onPreviewImageLoad(e) {
 }
 
 @action
+onPreviewPosterLoad(e) {
+  // Used for video posters: set the aspect ratio from the thumbnail so the player
+  // size matches BEFORE the user presses play.
+  const img = e?.target;
+  if (!img) return;
+  this._setPreviewAspect(img?.naturalWidth, img?.naturalHeight);
+  this._schedulePreviewMeasure();
+}
+
+@action
+onPreviewLoadedData() {
+  // After the first frame is available, we can hide the poster permanently.
+  this.previewHasLoadedData = true;
+}
+
+@action
 onPreviewVideoMeta(e) {
   const v = e?.target;
     this._previewMediaEl = v || null;
@@ -1793,6 +1812,8 @@ toggleImageFullscreen(e) {
     this.previewAspect = null;
     this.previewAr = 1;
     this.previewPlayerMaxW = null;
+    this.previewHasLoadedData = false;
+    this.previewHasLoadedData = false;
     this.previewIsPlaying = false;
     this.previewCurrentTime = 0;
     this.previewDuration = 0;
@@ -1804,8 +1825,31 @@ toggleImageFullscreen(e) {
     this._previewPlayerEl = null;
     this.errorMessage = null;
 
-    // Provide a stable default ratio for audio/video so the layout doesn't jump.
-    if (mt === "video" || mt === "audio") {
+    // Provide a stable, best-effort ratio for audio/video so the layout doesn't jump.
+    // For video we try to use any dimensions the backend may provide, otherwise we fall back
+    // to 16:9 until the poster thumbnail loads.
+    if (mt === "video") {
+      const w =
+        item.width ||
+        item.video_width ||
+        item.media_width ||
+        item.thumbnail_width ||
+        item.thumb_width ||
+        item.thumb_w;
+      const h =
+        item.height ||
+        item.video_height ||
+        item.media_height ||
+        item.thumbnail_height ||
+        item.thumb_height ||
+        item.thumb_h;
+
+      if (Number.isFinite(Number(w)) && Number.isFinite(Number(h))) {
+        this._setPreviewAspect(Number(w), Number(h));
+      } else {
+        this._setPreviewAspect(16, 9);
+      }
+    } else if (mt === "audio") {
       this._setPreviewAspect(16, 9);
     }
 

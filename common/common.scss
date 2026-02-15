@@ -1141,6 +1141,13 @@
     filter: saturate(0.9);
   }
 
+  /* Video posters should not crop the thumbnail; match the video sizing. */
+  .hb-media-player--video .hb-media-player__poster {
+    object-fit: contain;
+    background: #000;
+    filter: none;
+  }
+
   .hb-media-player__overlay,
   .hb-media-player__centerBtn,
   .hb-media-player__controls {

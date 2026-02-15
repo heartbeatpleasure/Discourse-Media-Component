@@ -601,6 +601,19 @@
                       {{on "contextmenu" this.blockContextMenu}}
                       {{on "mousedown" this.blockRightMouseDown}}
                     >
+                      {{! Show the server thumbnail as a poster until the first frame is available.
+                          This avoids a blank/white preview and prevents the player from resizing on play. }}
+                      {{#if (and this.previewItem.thumbnail_url (not this.previewHasLoadedData))}}
+                        <img
+                          class="hb-media-player__poster"
+                          alt=""
+                          src={{this.previewItem.thumbnail_url}}
+                          loading="lazy"
+                          decoding="async"
+                          {{on "load" this.onPreviewPosterLoad}}
+                        />
+                      {{/if}}
+
                       <video
                         class="hb-media-player__media"
                         playsinline
@@ -609,6 +622,7 @@
                         disableremoteplayback
                         controlsList="nodownload noplaybackrate noremoteplayback"
                         {{did-insert this.registerPreviewMedia}}
+                        {{on "loadeddata" this.onPreviewLoadedData}}
                         {{on "loadedmetadata" this.onPreviewVideoMeta}}
                         {{on "timeupdate" this.onPreviewTimeUpdate}}
                         {{on "play" this.onPreviewPlay}}
