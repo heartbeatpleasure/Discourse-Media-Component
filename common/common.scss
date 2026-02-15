@@ -1094,12 +1094,33 @@
     color: #fff;
   }
 
-  .hb-media-player__btn {
-    padding: 0.35rem;
+  .hb-media-player__btn.btn.btn-icon {
+    /* Override Discourse .btn / .btn-icon defaults (avoid grey squares) */
+    padding: 0;
     margin: 0;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.35);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.55);
+    }
+
+    &:active {
+      transform: translateY(1px);
+    }
 
     .d-icon {
       color: #fff;
+      width: 1em;
+      height: 1em;
     }
   }
 

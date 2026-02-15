@@ -525,8 +525,20 @@
 
   {{!-- Preview modal --}}
   {{#if this.previewOpen}}
-    <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closePreview}}>
-      <div class="hb-media-library-modal" {{on "click" this.stopBackdropClick}}>
+    <div
+      class="hb-media-library-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      {{on "click" this.closePreview}}
+      {{on "contextmenu" this.blockContextMenu}}
+      {{on "mousedown" this.blockRightMouseDown}}
+    >
+      <div
+        class="hb-media-library-modal"
+        {{on "click" this.stopBackdropClick}}
+        {{on "contextmenu" this.blockContextMenu}}
+        {{on "mousedown" this.blockRightMouseDown}}
+      >
         <button class="btn btn-icon hb-media-preview__close" type="button" {{on "click" this.closePreview}}>
           {{d-icon "times"}}
           <span class="sr-only">{{i18n "media_gallery.close"}}</span>

@@ -155,6 +155,7 @@ export default class MediaGalleryPage extends Component {
 
   _pollTimer = null;
   _boundDocClick = null;
+  _boundKeydown = null;
   _boundResize = null;
   _boundFullscreenChange = null;
   _previewMeasureRaf = null;
@@ -177,6 +178,11 @@ export default class MediaGalleryPage extends Component {
 
     this._boundDocClick = (e) => this.onDocumentClick(e);
     document.addEventListener("click", this._boundDocClick);
+
+    // Best-effort devtools shortcut blocking while the preview modal is open.
+    // NOTE: This can always be bypassed by determined users.
+    this._boundKeydown = (e) => this.onDocumentKeydown(e);
+    document.addEventListener("keydown", this._boundKeydown, true);
 
     this._boundResize = () => this.onWindowResize();
     window.addEventListener("resize", this._boundResize);
@@ -217,6 +223,11 @@ export default class MediaGalleryPage extends Component {
     if (this._boundDocClick) {
       document.removeEventListener("click", this._boundDocClick);
       this._boundDocClick = null;
+    }
+
+    if (this._boundKeydown) {
+      document.removeEventListener("keydown", this._boundKeydown, true);
+      this._boundKeydown = null;
     }
 
     if (this._boundResize) {
@@ -479,6 +490,39 @@ export default class MediaGalleryPage extends Component {
       this.filterTagsOpen = false;
       this.uploadTagsOpen = false;
     }
+  }
+
+  // -----------------------
+  // Best-effort shortcut blocking (preview modal)
+  // -----------------------
+  onDocumentKeydown(e) {
+    if (!this.previewOpen) return;
+
+    // Do not interfere with typing in form fields.
+    const t = e?.target;
+    const tag = (t?.tagName || "").toLowerCase();
+    const isEditable = tag === "input" || tag === "textarea" || t?.isContentEditable;
+    if (isEditable) return;
+
+    const key = String(e?.key || "").toLowerCase();
+
+    // F12
+    const isF12 = e?.key === "F12" || e?.keyCode === 123;
+
+    // Ctrl/Cmd + Shift + (I/J/C/K) are common devtools shortcuts (Chrome/Edge/Firefox).
+    const ctrlOrCmd = !!(e?.ctrlKey || e?.metaKey);
+    const isCtrlShiftDevtools = ctrlOrCmd && !!e?.shiftKey && ["i", "j", "c", "k"].includes(key);
+
+    // Cmd + Option + (I/J/C) (macOS)
+    const isCmdOptDevtools = !!e?.metaKey && !!e?.altKey && ["i", "j", "c"].includes(key);
+
+    if (isF12 || isCtrlShiftDevtools || isCmdOptDevtools) {
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
+      return false;
+    }
+
+    return true;
   }
 
   // -----------------------
@@ -1202,12 +1246,20 @@ _setPreviewAspect(width, height) {
 
   _measurePreviewPlayerMaxW() {
     // Measure the available width for the media column so the player never overlaps the right panel.
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    // When the player is in fullscreen, the surrounding modal layout may report 0px widths.
+    // Avoid writing a tiny max-width (e.g. 240px) that would persist after exiting fullscreen.
+    if (fsEl && (fsEl.classList?.contains("hb-media-preview__player") || fsEl.closest?.(".hb-media-library-modal"))) {
+      return;
+    }
+
     const previewEl = document.querySelector(".hb-media-library-modal .hb-media-preview");
     const mediaEl = previewEl?.querySelector?.(".hb-media-preview__media");
     if (!previewEl || !mediaEl) return;
 
     const panelEl = previewEl.querySelector(".hb-media-preview__panel");
     const previewRect = previewEl.getBoundingClientRect();
+    if (!previewRect || previewRect.width < 200) return;
     const previewStyle = window.getComputedStyle(previewEl);
     const gap = parseFloat(previewStyle.columnGap) || 0;
 
@@ -1388,7 +1440,13 @@ onPreviewVideoMeta(e) {
   onFullscreenChange() {
     const doc = document;
     const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+    const wasFullscreen = this.previewIsFullscreen;
     this.previewIsFullscreen = !!fsEl;
+
+    // After exiting fullscreen (ESC), re-measure available space so the player snaps back.
+    if (wasFullscreen && !this.previewIsFullscreen) {
+      setTimeout(() => this._schedulePreviewMeasure(), 50);
+    }
   }
 
   @action
