@@ -1042,6 +1042,41 @@
     -webkit-touch-callout: none;
   }
 
+
+  /* Fullscreen sizing: ensure the preview player fills the viewport when in fullscreen */
+  .hb-media-preview__player:fullscreen,
+  .hb-media-preview__player:-webkit-full-screen {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    background: #000 !important;
+  }
+
+  .hb-media-preview__player:fullscreen .hb-media-player__media,
+  .hb-media-preview__player:-webkit-full-screen .hb-media-player__media {
+    border-radius: 0 !important;
+  }
+
+
+  /* CSS-based fullscreen fallback (when Fullscreen API is denied/unavailable) */
+  .hb-media-preview__player.is-pseudo-fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    background: #000 !important;
+    z-index: 100000;
+  }
+
+  .hb-media-preview__player.is-pseudo-fullscreen .hb-media-player__media {
+    border-radius: 0 !important;
+  }
   /* Audio has no visual track; keep the element present but invisible. */
   .hb-media-player--audio .hb-media-player__media {
     opacity: 0;
@@ -1126,12 +1161,21 @@
 
 
 
-  /* FontAwesome play/pause glyphs are slightly left-biased; nudge them for visual centering */
+  /* Play/Pause glyphs are slightly left-biased; nudge for visual centering */
   .hb-media-player__btn .d-icon-play,
-  .hb-media-player__centerBtn .d-icon-play,
+  .hb-media-player__centerBtn .d-icon-play {
+    transform: translateX(2px);
+  }
+
   .hb-media-player__btn .d-icon-pause,
   .hb-media-player__centerBtn .d-icon-pause {
     transform: translateX(1px);
+  }
+
+  .hb-media-player__icon {
+    width: 1em;
+    height: 1em;
+    display: block;
   }
   .hb-media-player__time {
     font-size: var(--font-down-2);

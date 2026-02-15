@@ -169,6 +169,7 @@ export default class MediaGalleryPage extends Component {
   @tracked previewDuration = 0;
   @tracked previewMuted = false;
   @tracked previewIsFullscreen = false;
+  @tracked previewPseudoFullscreen = false;
 
   // Delete confirmation modal
   @tracked deleteOpen = false;
@@ -184,6 +185,7 @@ export default class MediaGalleryPage extends Component {
 
   _previewMediaEl = null;
   _previewPlayerEl = null;
+  _previewLastVolume = 1;
 
   // Cache the first available icon name for this Discourse instance
   _playerIconCache = new Map();
@@ -528,6 +530,16 @@ export default class MediaGalleryPage extends Component {
     const tag = (t?.tagName || "").toLowerCase();
     const isEditable = tag === "input" || tag === "textarea" || t?.isContentEditable;
     if (isEditable) return;
+
+    // ESC should exit pseudo-fullscreen (our CSS-based fullscreen fallback)
+    if (e?.key === "Escape" && this.previewPseudoFullscreen) {
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
+      this.previewPseudoFullscreen = false;
+      // Re-measure to restore normal sizing
+      setTimeout(() => this._schedulePreviewMeasure(), 50);
+      return false;
+    }
 
     const key = String(e?.key || "").toLowerCase();
 
@@ -1240,6 +1252,10 @@ get previewPlayerStyle() {
   return htmlSafe(style);
 }
 
+  get previewFullscreenActive() {
+    return !!(this.previewIsFullscreen || this.previewPseudoFullscreen);
+  }
+
 
   _pickPlayerIcon(cacheKey, candidates, fallback) {
     const key = cacheKey || (candidates || []).join("|") || fallback || "";
@@ -1370,6 +1386,10 @@ onPreviewVideoMeta(e) {
     this.previewDuration = Number.isFinite(v?.duration) ? v.duration : 0;
     this.previewCurrentTime = Number.isFinite(v?.currentTime) ? v.currentTime : 0;
     this.previewMuted = !!v?.muted || v?.volume === 0;
+    const vv = Number(v?.volume);
+    if (Number.isFinite(vv) && vv > 0) {
+      this._previewLastVolume = vv;
+    }
     this.previewIsPlaying = !v?.paused;
   this._schedulePreviewMeasure();
 }
@@ -1382,6 +1402,10 @@ onPreviewVideoMeta(e) {
     this.previewDuration = Number.isFinite(a?.duration) ? a.duration : 0;
     this.previewCurrentTime = Number.isFinite(a?.currentTime) ? a.currentTime : 0;
     this.previewMuted = !!a?.muted || a?.volume === 0;
+    const av = Number(a?.volume);
+    if (Number.isFinite(av) && av > 0) {
+      this._previewLastVolume = av;
+    }
     this.previewIsPlaying = !a?.paused;
   }
 
@@ -1468,12 +1492,30 @@ onPreviewVideoMeta(e) {
     if (!el) return;
 
     try {
-      const nextMuted = !el.muted;
-      el.muted = nextMuted;
+      const isMuted = !!el.muted || el.volume === 0;
 
-      // If unmuting and volume is 0, restore to a reasonable default.
-      if (!nextMuted && el.volume === 0) {
-        el.volume = 1;
+      if (isMuted) {
+        // Unmute
+        el.muted = false;
+
+        const restore =
+          Number.isFinite(this._previewLastVolume) && this._previewLastVolume > 0
+            ? this._previewLastVolume
+            : 1;
+
+        if (el.volume === 0) {
+          el.volume = restore;
+        }
+
+        // Some browsers keep muted after volume changes, so force it off.
+        el.muted = false;
+      } else {
+        // Mute (store last non-zero volume so we can restore later)
+        const v = Number(el.volume);
+        if (Number.isFinite(v) && v > 0) {
+          this._previewLastVolume = v;
+        }
+        el.muted = true;
       }
 
       this.previewMuted = !!el.muted || el.volume === 0;
@@ -1517,11 +1559,23 @@ onPreviewVideoMeta(e) {
     const doc = document;
     const fsEl = this._getFullscreenElement();
 
-    if (fsEl) {
-      doc.exitFullscreen?.() ||
-        doc.webkitExitFullscreen?.() ||
-        doc.mozCancelFullScreen?.() ||
-        doc.msExitFullscreen?.();
+    // Exit fullscreen (real or pseudo)
+    if (fsEl || this.previewPseudoFullscreen) {
+      if (fsEl) {
+        const exit =
+          doc.exitFullscreen ||
+          doc.webkitExitFullscreen ||
+          doc.mozCancelFullScreen ||
+          doc.msExitFullscreen;
+
+        try {
+          exit?.call(doc);
+        } catch {
+          // ignore
+        }
+      }
+
+      this.previewPseudoFullscreen = false;
       return;
     }
 
@@ -1531,17 +1585,16 @@ onPreviewVideoMeta(e) {
     if (media?.webkitEnterFullscreen) {
       try {
         media.webkitEnterFullscreen();
+        return;
       } catch {
         // ignore
       }
-      return;
     }
 
-    const candidates = [
-      media?.closest?.(".hb-media-player"),
-      this._previewPlayerEl,
-      media,
-    ].filter(Boolean);
+    // Prefer fullscreening the preview player wrapper (so we can style :fullscreen reliably)
+    const player = this._previewPlayerEl || media?.closest?.(".hb-media-preview__player") || null;
+
+    const candidates = [player, media].filter(Boolean);
 
     for (const target of candidates) {
       // eslint-disable-next-line no-await-in-loop
@@ -1549,8 +1602,9 @@ onPreviewVideoMeta(e) {
       if (ok) return;
     }
 
-    // Last resort: fullscreen the page (better than doing nothing).
-    await this._requestFullscreen(doc.documentElement);
+    // If Fullscreen API is not available/denied, fall back to CSS-based pseudo fullscreen.
+    this.previewPseudoFullscreen = true;
+    setTimeout(() => this._schedulePreviewMeasure(), 50);
   }
 
   @action
@@ -1559,6 +1613,9 @@ onPreviewVideoMeta(e) {
     const fsEl = this._getFullscreenElement();
     const wasFullscreen = this.previewIsFullscreen;
     this.previewIsFullscreen = !!fsEl;
+    if (this.previewIsFullscreen) {
+      this.previewPseudoFullscreen = false;
+    }
 
     // After exiting fullscreen (ESC), re-measure available space so the player snaps back.
     if (wasFullscreen && !this.previewIsFullscreen) {
@@ -1646,6 +1703,7 @@ toggleImageFullscreen(e) {
     this.previewDuration = 0;
     this.previewMuted = false;
     this.previewIsFullscreen = false;
+    this.previewPseudoFullscreen = false;
 
     this._previewMediaEl = null;
     this._previewPlayerEl = null;
@@ -1698,6 +1756,7 @@ toggleImageFullscreen(e) {
     this.previewDuration = 0;
     this.previewMuted = false;
     this.previewIsFullscreen = false;
+    this.previewPseudoFullscreen = false;
 
     this._previewMediaEl = null;
     this._previewPlayerEl = null;
