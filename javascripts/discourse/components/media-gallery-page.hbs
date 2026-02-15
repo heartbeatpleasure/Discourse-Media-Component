@@ -631,7 +631,7 @@
                           aria-label={{if this.previewMuted "Unmute" "Mute"}}
                           {{on "click" this.togglePreviewMute}}
                         >
-                          {{d-icon (if this.previewMuted "volume-mute" "volume-up")}}
+                          {{d-icon (if this.previewMuted this.volumeOffIcon this.volumeOnIcon)}}
                         </button>
 
                         <button
@@ -640,7 +640,7 @@
                           aria-label={{if this.previewIsFullscreen "Exit fullscreen" "Fullscreen"}}
                           {{on "click" this.togglePreviewFullscreen}}
                         >
-                          {{d-icon (if this.previewIsFullscreen "compress" "expand")}}
+                          {{d-icon (if this.previewIsFullscreen this.fullscreenExitIcon this.fullscreenEnterIcon)}}
                         </button>
                       </div>
                     </div>
@@ -721,7 +721,7 @@
                           aria-label={{if this.previewMuted "Unmute" "Mute"}}
                           {{on "click" this.togglePreviewMute}}
                         >
-                          {{d-icon (if this.previewMuted "volume-mute" "volume-up")}}
+                          {{d-icon (if this.previewMuted this.volumeOffIcon this.volumeOnIcon)}}
                         </button>
                       </div>
                     </div>

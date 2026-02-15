@@ -7,9 +7,15 @@
   "svg_icons": [
     "play",
     "pause",
+
     "volume-up",
     "volume-mute",
+    "volume-high",
+    "volume-xmark",
+
     "expand",
-    "compress"
+    "compress",
+    "maximize",
+    "minimize"
   ]
 }

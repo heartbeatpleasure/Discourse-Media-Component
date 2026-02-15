@@ -1124,6 +1124,15 @@
     }
   }
 
+
+
+  /* FontAwesome play/pause glyphs are slightly left-biased; nudge them for visual centering */
+  .hb-media-player__btn .d-icon-play,
+  .hb-media-player__centerBtn .d-icon-play,
+  .hb-media-player__btn .d-icon-pause,
+  .hb-media-player__centerBtn .d-icon-pause {
+    transform: translateX(1px);
+  }
   .hb-media-player__time {
     font-size: var(--font-down-2);
     color: rgba(255, 255, 255, 0.92);

@@ -5,6 +5,7 @@ import { action } from "@ember/object";
 import { htmlSafe } from "@ember/template";
 import { inject as service } from "@ember/service";
 import { ajax } from "discourse/lib/ajax";
+import { iconNode } from "discourse-common/lib/icon-library";
 import I18n from "I18n";
 
 function normalizeListSetting(raw) {
@@ -84,6 +85,27 @@ const THUMB_RETRY_BASE_DELAY_MS = 500;
 const TRANSPARENT_GIF =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
+
+// Player icon fallbacks (FontAwesome 5/6 naming differences across Discourse versions)
+const FULLSCREEN_ENTER_ICON_CANDIDATES = ["maximize", "expand"];
+const FULLSCREEN_EXIT_ICON_CANDIDATES = ["minimize", "compress"];
+const VOLUME_ON_ICON_CANDIDATES = ["volume-high", "volume-up"];
+const VOLUME_OFF_ICON_CANDIDATES = ["volume-xmark", "volume-mute"];
+
+function iconAvailable(name) {
+  if (!name) return false;
+  try {
+    const n = iconNode(name);
+    if (!n) return false;
+    const html = typeof n === "string" ? n : (n?.toString?.() || n?.outerHTML || "");
+    // When the icon is missing, Discourse typically returns a fallback icon.
+    // In that case the requested icon name will not match the class or sprite reference.
+    return html.includes(`d-icon-${name}`) || html.includes(`#${name}`);
+  } catch {
+    return false;
+  }
+}
+
 export default class MediaGalleryPage extends Component {
   @service currentUser;
 
@@ -162,6 +184,9 @@ export default class MediaGalleryPage extends Component {
 
   _previewMediaEl = null;
   _previewPlayerEl = null;
+
+  // Cache the first available icon name for this Discourse instance
+  _playerIconCache = new Map();
 
   _destroyed = false;
 
@@ -1215,6 +1240,41 @@ get previewPlayerStyle() {
   return htmlSafe(style);
 }
 
+
+  _pickPlayerIcon(cacheKey, candidates, fallback) {
+    const key = cacheKey || (candidates || []).join("|") || fallback || "";
+    if (this._playerIconCache?.has(key)) {
+      return this._playerIconCache.get(key);
+    }
+
+    let found = fallback;
+    for (const c of candidates || []) {
+      if (iconAvailable(c)) {
+        found = c;
+        break;
+      }
+    }
+
+    this._playerIconCache?.set(key, found);
+    return found;
+  }
+
+  get fullscreenEnterIcon() {
+    return this._pickPlayerIcon("fsEnter", FULLSCREEN_ENTER_ICON_CANDIDATES, "expand");
+  }
+
+  get fullscreenExitIcon() {
+    return this._pickPlayerIcon("fsExit", FULLSCREEN_EXIT_ICON_CANDIDATES, "compress");
+  }
+
+  get volumeOnIcon() {
+    return this._pickPlayerIcon("volOn", VOLUME_ON_ICON_CANDIDATES, "volume-up");
+  }
+
+  get volumeOffIcon() {
+    return this._pickPlayerIcon("volOff", VOLUME_OFF_ICON_CANDIDATES, "volume-mute");
+  }
+
 _setPreviewAspect(width, height) {
   const w = Number(width);
   const h = Number(height);
@@ -1309,7 +1369,7 @@ onPreviewVideoMeta(e) {
   this._setPreviewAspect(v?.videoWidth, v?.videoHeight);
     this.previewDuration = Number.isFinite(v?.duration) ? v.duration : 0;
     this.previewCurrentTime = Number.isFinite(v?.currentTime) ? v.currentTime : 0;
-    this.previewMuted = !!v?.muted;
+    this.previewMuted = !!v?.muted || v?.volume === 0;
     this.previewIsPlaying = !v?.paused;
   this._schedulePreviewMeasure();
 }
@@ -1321,7 +1381,7 @@ onPreviewVideoMeta(e) {
     this._previewPlayerEl = a?.closest?.(".hb-media-preview__player") || null;
     this.previewDuration = Number.isFinite(a?.duration) ? a.duration : 0;
     this.previewCurrentTime = Number.isFinite(a?.currentTime) ? a.currentTime : 0;
-    this.previewMuted = !!a?.muted;
+    this.previewMuted = !!a?.muted || a?.volume === 0;
     this.previewIsPlaying = !a?.paused;
   }
 
@@ -1361,7 +1421,7 @@ onPreviewVideoMeta(e) {
     const el = e?.target;
     if (!el) return;
     if (this._previewMediaEl && el !== this._previewMediaEl) return;
-    this.previewMuted = !!el.muted;
+    this.previewMuted = !!el.muted || el.volume === 0;
   }
 
   @action
@@ -1403,23 +1463,59 @@ onPreviewVideoMeta(e) {
   togglePreviewMute(e) {
     e?.preventDefault?.();
     e?.stopPropagation?.();
+
     const el = this._previewMediaEl;
     if (!el) return;
+
     try {
-      el.muted = !el.muted;
-      this.previewMuted = !!el.muted;
+      const nextMuted = !el.muted;
+      el.muted = nextMuted;
+
+      // If unmuting and volume is 0, restore to a reasonable default.
+      if (!nextMuted && el.volume === 0) {
+        el.volume = 1;
+      }
+
+      this.previewMuted = !!el.muted || el.volume === 0;
     } catch {
       // ignore
     }
   }
 
+  _getFullscreenElement() {
+    const doc = document;
+    return doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement;
+  }
+
+  async _requestFullscreen(target) {
+    if (!target) return false;
+
+    const fn =
+      target.requestFullscreen ||
+      target.webkitRequestFullscreen ||
+      target.mozRequestFullScreen ||
+      target.msRequestFullscreen;
+
+    if (typeof fn !== "function") return false;
+
+    try {
+      const res = fn.call(target);
+      if (res && typeof res.catch === "function") {
+        await res.catch(() => {});
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   @action
-  togglePreviewFullscreen(e) {
+  async togglePreviewFullscreen(e) {
     e?.preventDefault?.();
     e?.stopPropagation?.();
 
     const doc = document;
-    const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+    const fsEl = this._getFullscreenElement();
 
     if (fsEl) {
       doc.exitFullscreen?.() ||
@@ -1429,17 +1525,38 @@ onPreviewVideoMeta(e) {
       return;
     }
 
-    const target = this._previewPlayerEl || this._previewMediaEl;
-    target?.requestFullscreen?.() ||
-      target?.webkitRequestFullscreen?.() ||
-      target?.mozRequestFullScreen?.() ||
-      target?.msRequestFullscreen?.();
+    const media = this._previewMediaEl;
+
+    // iOS Safari uses a separate API for fullscreen video.
+    if (media?.webkitEnterFullscreen) {
+      try {
+        media.webkitEnterFullscreen();
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    const candidates = [
+      media?.closest?.(".hb-media-player"),
+      this._previewPlayerEl,
+      media,
+    ].filter(Boolean);
+
+    for (const target of candidates) {
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await this._requestFullscreen(target);
+      if (ok) return;
+    }
+
+    // Last resort: fullscreen the page (better than doing nothing).
+    await this._requestFullscreen(doc.documentElement);
   }
 
   @action
   onFullscreenChange() {
     const doc = document;
-    const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+    const fsEl = this._getFullscreenElement();
     const wasFullscreen = this.previewIsFullscreen;
     this.previewIsFullscreen = !!fsEl;
 
@@ -1487,7 +1604,7 @@ toggleImageFullscreen(e) {
   if (!player) return;
 
   const doc = document;
-  const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+  const fsEl = this._getFullscreenElement();
 
   if (fsEl) {
     doc.exitFullscreen?.() ||
@@ -1556,7 +1673,7 @@ toggleImageFullscreen(e) {
 
     try {
       const doc = document;
-      const fsEl = doc.fullscreenElement || doc.webkitFullscreenElement;
+      const fsEl = this._getFullscreenElement();
       if (fsEl) {
         doc.exitFullscreen?.() ||
           doc.webkitExitFullscreen?.() ||
