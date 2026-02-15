@@ -603,9 +603,8 @@
                     >
                       <video
                         class="hb-media-player__media"
-                        src={{this.previewStreamUrl}}
                         playsinline
-                        preload={{if this.previewStreamUrl "metadata" "none"}}
+                        preload="none"
                         disablepictureinpicture
                         disableremoteplayback
                         controlsList="nodownload noplaybackrate noremoteplayback"
@@ -724,8 +723,7 @@
                       {{/if}}
                       <audio
                         class="hb-media-player__media"
-                        src={{this.previewStreamUrl}}
-                        preload={{if this.previewStreamUrl "metadata" "none"}}
+                        preload="none"
                         disablepictureinpicture
                         disableremoteplayback
                         controlsList="nodownload noplaybackrate noremoteplayback"

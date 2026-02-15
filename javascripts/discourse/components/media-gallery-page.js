@@ -1508,9 +1508,16 @@ onPreviewVideoMeta(e) {
         this.previewStreamLoading = false;
       }
 
-      // If we now have a src, start playing.
+      // If we now have a stream URL, attach it to the media element ONLY after
+      // the explicit user gesture (this click), then start playing.
       if (this.previewStreamUrl) {
         try {
+          const current = el.currentSrc || el.getAttribute?.("src") || "";
+          if (!current || !current.includes("/media/stream/")) {
+            el.src = this.previewStreamUrl;
+            // Ensure the element picks up the new source.
+            el.load?.();
+          }
           const p = el.play?.();
           if (p && typeof p.catch === "function") p.catch(() => {});
         } catch {
@@ -1896,6 +1903,23 @@ toggleImageFullscreen(e) {
 
     try {
       await this.fetchPreviewStreamUrl({ resetRetry: false });
+
+      // The template no longer binds `src` for audio/video (to avoid loading
+      // anything until the user explicitly presses Play), so we must re-attach
+      // the refreshed stream URL directly to the element.
+      const el = this._previewMediaEl;
+      if (el && this.previewStreamUrl) {
+        try {
+          el.src = this.previewStreamUrl;
+          el.load?.();
+          if (this.previewIsPlaying) {
+            const p = el.play?.();
+            if (p && typeof p.catch === "function") p.catch(() => {});
+          }
+        } catch {
+          // ignore
+        }
+      }
     } catch {
       // ignore
     }
