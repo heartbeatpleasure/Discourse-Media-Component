@@ -1644,8 +1644,21 @@ async togglePreviewPlayback(e) {
 
     try {
       const current = el.currentSrc || el.getAttribute?.("src") || "";
-      if (!current || !current.includes("/media/stream/")) {
+
+      // currentSrc can remain populated even after clearing/removing src.
+      // Compare tokens rather than raw strings because currentSrc can be absolute.
+      const currentToken = this._extractTokenFromStreamUrl(current);
+      const desiredToken =
+        this._previewStreamToken || this._extractTokenFromStreamUrl(this.previewStreamUrl);
+
+      if (!current || !currentToken || !desiredToken || currentToken !== desiredToken) {
         el.src = this.previewStreamUrl;
+        // Reset the element state so replay is reliable across browsers.
+        try {
+          el.currentTime = 0;
+        } catch {
+          // ignore
+        }
         el.load?.();
       }
     } catch {
