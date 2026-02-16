@@ -194,6 +194,7 @@ export default class MediaGalleryPage extends Component {
   _previewStreamToken = null;
   _previewSecurity = null;
   _previewHeartbeatTimer = null;
+  _previewRevokePromise = null;
 
 
   // Cache the first available icon name for this Discourse instance
@@ -1506,7 +1507,7 @@ onPreviewVideoMeta(e) {
     this._stopPreviewHeartbeat();
 
     // Best-effort: revoke the token at the end so it can't be reused for casual downloading.
-    this._revokePreviewToken();
+    this._previewRevokePromise = this._revokePreviewToken();
 
     // Clear the stream URL so pressing play again will request a fresh token.
     this.previewStreamUrl = null;
@@ -1535,79 +1536,133 @@ onPreviewVideoMeta(e) {
     this.previewMuted = !!el.muted || el.volume === 0;
   }
 
-  @action
-  async togglePreviewPlayback(e) {
-    e?.preventDefault?.();
-    e?.stopPropagation?.();
+  
+@action
+async togglePreviewPlayback(e) {
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
 
-    const el = this._previewMediaEl;
-    if (!el) return;
+  const el = this._previewMediaEl;
+  if (!el) return;
 
-    // Delay token creation until the user explicitly presses Play.
-    if (
-      (this.previewMediaType === "video" || this.previewMediaType === "audio") &&
-      !this.previewStreamUrl
-    ) {
-      if (this.previewStreamLoading) return;
-      this.previewStreamLoading = true;
-      this.errorMessage = null;
+  const mt = this.previewMediaType;
 
+  // Treat "ended" as a replay request: restart from 0 and always request a fresh token.
+  // We don't change the label (still "Play"), but behavior is "Replay".
+  const replayRequested =
+    !!el.ended ||
+    (this.previewHasDuration &&
+      this.previewDuration > 0 &&
+      this.previewCurrentTime >= this.previewDuration - 0.05);
+
+  if (replayRequested) {
+    this.previewIsPlaying = false;
+    this.previewCurrentTime = 0;
+    this.previewHasLoadedData = false;
+
+    // Make sure the element isn't stuck at the end.
+    try {
+      el.pause?.();
+    } catch {
+      // ignore
+    }
+    try {
+      el.currentTime = 0;
+    } catch {
+      // ignore
+    }
+
+    // Force a new token for audio/video replays.
+    if (mt === "video" || mt === "audio") {
+      this.previewStreamUrl = null;
+      this._previewStreamToken = null;
+
+      // Also clear any previous src so the next play definitely uses the new token.
       try {
-        await this.fetchPreviewStreamUrl({ resetRetry: true });
-      } catch (err) {
-        const status = err?.jqXHR?.status;
-        const msg =
-          err?.jqXHR?.responseJSON?.errors?.join(", ") || err?.message || "Error";
-
-        if (status === 429) {
-          // Keep UI consistent: show as a notice (English messages come from the server).
-          this.noticeMessage =
-            msg ||
-            "Playback blocked: too many active sessions. Close another player and try again.";
-          this.previewStreamUrl = null;
-          this._previewStreamToken = null;
-        } else {
-          this.errorMessage = msg;
-        }
-      } finally {
-        this.previewStreamLoading = false;
+        el.removeAttribute?.("src");
+        el.src = "";
+        el.load?.();
+      } catch {
+        // ignore
       }
+    }
+  }
 
-      // If we now have a stream URL, attach it to the media element ONLY after
-      // the explicit user gesture (this click), then start playing.
-      if (this.previewStreamUrl) {
-        try {
-          const current = el.currentSrc || el.getAttribute?.("src") || "";
-          if (!current || !current.includes("/media/stream/")) {
-            el.src = this.previewStreamUrl;
-            // Ensure the element picks up the new source.
-            el.load?.();
-          }
-          const p = el.play?.();
-          if (p && typeof p.catch === "function") p.catch(() => {});
-        } catch {
-          // ignore
-        }
+  // Pause/Play toggle
+  if (!el.paused && !el.ended) {
+    try {
+      el.pause?.();
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
+  // For audio/video: delay token creation until the user explicitly presses Play.
+  if ((mt === "video" || mt === "audio") && !this.previewStreamUrl) {
+    if (this.previewStreamLoading) return;
+
+    this.previewStreamLoading = true;
+    this.errorMessage = null;
+
+    // If we just revoked a previous token (ended/close), wait briefly so
+    // max-active-token limits don't spuriously block the new token.
+    try {
+      const p = this._previewRevokePromise;
+      if (p && typeof p.then === "function") {
+        await Promise.race([p, new Promise((r) => setTimeout(r, 1200))]);
       }
-
-      return;
+    } catch {
+      // ignore
     }
 
     try {
-      if (el.paused || el.ended) {
-        const p = el.play?.();
-        // Avoid unhandled promise warnings.
-        if (p && typeof p.catch === "function") p.catch(() => {});
+      await this.fetchPreviewStreamUrl({ resetRetry: true });
+    } catch (err) {
+      const status = err?.jqXHR?.status;
+      const msg =
+        err?.jqXHR?.responseJSON?.errors?.join(", ") || err?.message || "Error";
+
+      if (status === 429) {
+        // Keep UI consistent: show as a notice (English messages come from the server).
+        this.noticeMessage =
+          msg ||
+          "Playback blocked: too many active sessions. Close another player and try again.";
+        this.previewStreamUrl = null;
+        this._previewStreamToken = null;
       } else {
-        el.pause?.();
+        this.errorMessage = msg;
+      }
+    } finally {
+      this.previewStreamLoading = false;
+    }
+  }
+
+  // Attach the stream URL to the element after the explicit user gesture.
+  if (mt === "video" || mt === "audio") {
+    if (!this.previewStreamUrl) return;
+
+    try {
+      const current = el.currentSrc || el.getAttribute?.("src") || "";
+      if (!current || !current.includes("/media/stream/")) {
+        el.src = this.previewStreamUrl;
+        el.load?.();
       }
     } catch {
       // ignore
     }
   }
 
-  @action
-  seekPreview(e) {
+  try {
+    const p = el.play?.();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+@action
+seekPreview(e) {
     const el = this._previewMediaEl;
     if (!el) return;
     const v = Number(e?.target?.value);
@@ -1821,7 +1876,8 @@ toggleImageFullscreen(e) {
       if (status === 429) {
         // Session limit exceeded. Revoke this token and stop playback, but keep the overlay open.
         try {
-          await this._revokePreviewToken();
+          this._previewRevokePromise = this._revokePreviewToken();
+          await this._previewRevokePromise;
         } catch {
           // ignore
         }
@@ -2018,7 +2074,7 @@ toggleImageFullscreen(e) {
 
     // Stop heartbeat and revoke the current token (best-effort)
     this._stopPreviewHeartbeat();
-    this._revokePreviewToken();
+    this._previewRevokePromise = this._revokePreviewToken();
     this._previewSecurity = null;
     this._previewStreamToken = null;
 
