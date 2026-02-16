@@ -191,6 +191,11 @@ export default class MediaGalleryPage extends Component {
   _previewPlayerEl = null;
   _previewLastVolume = 1;
 
+  // Playback hardening
+  _previewStreamToken = null;
+  _previewSecurity = null;
+  _previewHeartbeatTimer = null;
+
   // Cache the first available icon name for this Discourse instance
   _playerIconCache = new Map();
 
@@ -1481,16 +1486,39 @@ onPreviewVideoMeta(e) {
   @action
   onPreviewPlay() {
     this.previewIsPlaying = true;
+    this._startPreviewHeartbeat();
   }
 
   @action
   onPreviewPause() {
     this.previewIsPlaying = false;
+    this._stopPreviewHeartbeat();
   }
 
   @action
   onPreviewEnded() {
     this.previewIsPlaying = false;
+    this._stopPreviewHeartbeat();
+
+    // Best-effort: revoke token at the end so it can't be reused for casual downloading.
+    this._revokePreviewToken();
+
+    // Clear the stream URL so pressing play again will request a fresh token.
+    this.previewStreamUrl = null;
+    this._previewStreamToken = null;
+
+    try {
+      const el = this._previewMediaEl;
+      if (el) {
+        el.removeAttribute?.("src");
+        el.src = "";
+        el.load?.();
+      }
+    } catch {
+      // ignore
+    }
+
+    this.previewHasLoadedData = false;
   }
 
   @action
@@ -1750,6 +1778,79 @@ toggleImageFullscreen(e) {
   // Reuse the shared fullscreen logic (includes pseudo-fullscreen fallback).
   return this.togglePreviewFullscreen(e);
 }
+
+  _extractTokenFromStreamUrl(url) {
+    if (!url) return null;
+    const m = String(url).match(/\/media\/stream\/([^/?#]+)/);
+    return m ? m[1] : null;
+  }
+
+  async _sendPreviewHeartbeat() {
+    if (!this.previewOpen) return;
+    if (!this._previewStreamToken) return;
+    const sec = this._previewSecurity || {};
+    if (!sec.heartbeat_enabled) return;
+
+    try {
+      await ajax("/media/heartbeat", {
+        type: "POST",
+        data: { token: this._previewStreamToken },
+      });
+    } catch (e) {
+      const status = e?.jqXHR?.status;
+
+      // If the server says too many sessions, revoke this token and close.
+      if (status === 429) {
+        try {
+          await this._revokePreviewToken();
+        } catch {
+          // ignore
+        }
+
+        this.noticeMessage =
+          e?.jqXHR?.responseJSON?.errors?.join(", ") || "Playback blocked (too many active sessions).";
+        this.closePreview();
+      }
+    }
+  }
+
+  _startPreviewHeartbeat() {
+    if (this._previewHeartbeatTimer) return;
+    if (!this.previewOpen) return;
+    if (!this._previewStreamToken) return;
+
+    const sec = this._previewSecurity || {};
+    if (!sec.heartbeat_enabled) return;
+
+    const intervalSec = Number(sec.heartbeat_interval_seconds);
+    const intervalMs = Math.max(5000, (Number.isFinite(intervalSec) ? intervalSec : 15) * 1000);
+
+    // First beat immediately, then interval.
+    this._sendPreviewHeartbeat();
+    this._previewHeartbeatTimer = setInterval(() => this._sendPreviewHeartbeat(), intervalMs);
+  }
+
+  _stopPreviewHeartbeat() {
+    if (this._previewHeartbeatTimer) {
+      clearInterval(this._previewHeartbeatTimer);
+      this._previewHeartbeatTimer = null;
+    }
+  }
+
+  async _revokePreviewToken() {
+    const sec = this._previewSecurity || {};
+    if (!sec.revoke_enabled) return;
+    if (!this._previewStreamToken) return;
+
+    try {
+      await ajax("/media/revoke", {
+        type: "POST",
+        data: { token: this._previewStreamToken },
+      });
+    } catch {
+      // ignore
+    }
+  }
   async fetchPreviewStreamUrl({ resetRetry } = { resetRetry: false }) {
     if (!this.previewItem?.public_id) return;
 
@@ -1764,19 +1865,8 @@ toggleImageFullscreen(e) {
     const url = res?.stream_url || null;
     this.previewStreamUrl = url;
 
-    // Best-effort: if the media element is already mounted, set src directly.
-    // This avoids race conditions when the user clicks play immediately.
-    const el = this._previewMediaEl;
-    if (el && url && (this.previewMediaType === "video" || this.previewMediaType === "audio")) {
-      try {
-        el.src = url;
-        el.preload = "metadata";
-        el.load?.();
-      } catch {
-        // ignore
-      }
-    }
-
+    this._previewSecurity = res?.security || null;
+    this._previewStreamToken = this._extractTokenFromStreamUrl(url);
     return url;
   }
 
@@ -1804,6 +1894,10 @@ toggleImageFullscreen(e) {
     this.previewOpen = true;
     this.previewItem = item;
     this.previewStreamUrl = null;
+
+    this._stopPreviewHeartbeat();
+    this._previewSecurity = null;
+    this._previewStreamToken = null;
     // Images need the URL immediately to display. For audio/video we defer token creation
     // until the user explicitly presses Play.
     this.previewLoading = mt === "image";
@@ -1879,6 +1973,10 @@ toggleImageFullscreen(e) {
       // ignore
     }
 
+    // Best-effort: stop heartbeats and revoke the token early.
+    this._stopPreviewHeartbeat();
+    this._revokePreviewToken();
+
     // Clear src to avoid leaving a stream URL in the DOM after closing.
     try {
       const el = this._previewMediaEl;
@@ -1924,6 +2022,9 @@ toggleImageFullscreen(e) {
     this._previewMediaEl = null;
     this._previewPlayerEl = null;
 
+    this._previewStreamToken = null;
+    this._previewSecurity = null;
+
     if (this._previewMeasureRaf) {
       cancelAnimationFrame(this._previewMeasureRaf);
       this._previewMeasureRaf = null;
@@ -1948,6 +2049,9 @@ toggleImageFullscreen(e) {
     try {
       await this.fetchPreviewStreamUrl({ resetRetry: false });
 
+      // Token may have changed; restart heartbeat on the new token.
+      this._stopPreviewHeartbeat();
+
       // The template no longer binds `src` for audio/video (to avoid loading
       // anything until the user explicitly presses Play), so we must re-attach
       // the refreshed stream URL directly to the element.
@@ -1963,6 +2067,11 @@ toggleImageFullscreen(e) {
         } catch {
           // ignore
         }
+      }
+
+      if (this.previewIsPlaying) {
+        // Some browsers won't re-fire "play" when swapping src while already playing.
+        this._startPreviewHeartbeat();
       }
     } catch {
       // ignore
