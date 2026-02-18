@@ -18,3 +18,25 @@ audio_placeholder:
   description:
     en: "Placeholder image used for audio items when no thumbnail exists (recommended 16:9, e.g. 1600x900)."
     nl: "Placeholder afbeelding voor audio items zonder thumbnail (aanrader 16:9, bijv. 1600x900)."
+
+# HLS playback (milestone 1)
+hls_js_url:
+  default: "https://cdn.jsdelivr.net/npm/hls.js@1.5.14/dist/hls.min.js"
+  type: string
+  description:
+    en: "URL to hls.js (used for HLS playback in Chrome/Firefox). Leave empty to disable hls.js loading."
+    nl: "URL naar hls.js (nodig voor HLS in Chrome/Firefox). Laat leeg om hls.js niet te laden."
+
+hls_prefer_native:
+  default: true
+  type: bool
+  description:
+    en: "Prefer native HLS playback where available (Safari/iOS)."
+    nl: "Gebruik native HLS waar beschikbaar (Safari/iOS)."
+
+hls_debug:
+  default: false
+  type: bool
+  description:
+    en: "Enable hls.js debug logging (console)."
+    nl: "Zet hls.js debug logging aan (console)."

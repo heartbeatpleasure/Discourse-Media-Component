@@ -45,6 +45,46 @@ function isProcessingStatus(status) {
   return status === "queued" || status === "processing";
 }
 
+// ---- HLS helpers (milestone 1) ---------------------------------------------
+
+const HLS_MIME = "application/vnd.apple.mpegurl";
+
+const _loadedScripts = new Map();
+function loadScriptOnce(url) {
+  const u = String(url || "").trim();
+  if (!u) return Promise.resolve(false);
+  if (_loadedScripts.has(u)) return _loadedScripts.get(u);
+
+  const p = new Promise((resolve, reject) => {
+    try {
+      if (document.querySelector(`script[src="${u}"]`)) {
+        resolve(true);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    const s = document.createElement("script");
+    s.src = u;
+    s.async = true;
+    s.onload = () => resolve(true);
+    s.onerror = () => reject(new Error(`failed_to_load_script: ${u}`));
+    document.head.appendChild(s);
+  });
+
+  _loadedScripts.set(u, p);
+  return p;
+}
+
+function canPlayNativeHls(videoEl) {
+  try {
+    return !!videoEl?.canPlayType && videoEl.canPlayType(HLS_MIME) !== "";
+  } catch {
+    return false;
+  }
+}
+
 
 function formatDurationSeconds(totalSeconds) {
   const n = Number(totalSeconds);
@@ -108,6 +148,7 @@ function iconAvailable(name) {
 
 export default class MediaGalleryPage extends Component {
   @service currentUser;
+  @service("theme-settings") themeSettings;
 
   // Tabs
   @tracked activeTab = "all"; // all | mine
@@ -195,6 +236,10 @@ export default class MediaGalleryPage extends Component {
   _previewSecurity = null;
   _previewHeartbeatTimer = null;
   _previewRevokePromise = null;
+
+  _previewHls = null;
+  _previewSourceAttached = false;
+  _previewIsHls = false;
 
 
   // Cache the first available icon name for this Discourse instance
@@ -1579,9 +1624,7 @@ async togglePreviewPlayback(e) {
 
       // Also clear any previous src so the next play definitely uses the new token.
       try {
-        el.removeAttribute?.("src");
-        el.src = "";
-        el.load?.();
+        this._clearPreviewMediaSource();
       } catch {
         // ignore
       }
@@ -1642,27 +1685,40 @@ async togglePreviewPlayback(e) {
   if (mt === "video" || mt === "audio") {
     if (!this.previewStreamUrl) return;
 
-    try {
-      const current = el.currentSrc || el.getAttribute?.("src") || "";
-
-      // currentSrc can remain populated even after clearing/removing src.
-      // Compare tokens rather than raw strings because currentSrc can be absolute.
-      const currentToken = this._extractTokenFromStreamUrl(current);
-      const desiredToken =
-        this._previewStreamToken || this._extractTokenFromStreamUrl(this.previewStreamUrl);
-
-      if (!current || !currentToken || !desiredToken || currentToken !== desiredToken) {
-        el.src = this.previewStreamUrl;
-        // Reset the element state so replay is reliable across browsers.
+    // HLS: use native support when available, otherwise hls.js.
+    if (mt === "video" && this._isHlsUrl(this.previewStreamUrl)) {
+      if (!this._previewSourceAttached) {
         try {
-          el.currentTime = 0;
+          await this._attachHlsToPreview(this.previewStreamUrl);
         } catch {
           // ignore
         }
-        el.load?.();
       }
-    } catch {
-      // ignore
+    } else {
+
+      try {
+        const current = el.currentSrc || el.getAttribute?.("src") || "";
+
+        // currentSrc can remain populated even after clearing/removing src.
+        // Compare tokens rather than raw strings because currentSrc can be absolute.
+        const currentToken = this._extractTokenFromStreamUrl(current);
+        const desiredToken =
+          this._previewStreamToken || this._extractTokenFromStreamUrl(this.previewStreamUrl);
+
+        if (!current || !currentToken || !desiredToken || currentToken !== desiredToken) {
+          el.src = this.previewStreamUrl;
+          this._previewSourceAttached = true;
+          // Reset the element state so replay is reliable across browsers.
+          try {
+            el.currentTime = 0;
+          } catch {
+            // ignore
+          }
+          el.load?.();
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -1867,8 +1923,129 @@ toggleImageFullscreen(e) {
 
   _extractTokenFromStreamUrl(url) {
     if (!url) return null;
-    const m = String(url).match(/\/media\/stream\/([^/?#]+)/);
-    return m ? m[1] : null;
+
+    const u = String(url);
+
+    // Stream style: /media/stream/<token>
+    let m = u.match(/\/media\/stream\/([^/?#]+)/);
+    if (m) return m[1];
+
+    // HLS style: ?token=<token>
+    m = u.match(/[?&]token=([^&#]+)/);
+    if (m) {
+      try {
+        return decodeURIComponent(m[1]);
+      } catch {
+        return m[1];
+      }
+    }
+
+    return null;
+  }
+
+  _isHlsUrl(url) {
+    return /\.m3u8(\?|$)/i.test(String(url || ""));
+  }
+
+  _getThemeSetting(key, fallback = null) {
+    try {
+      const v = this.themeSettings?.getSetting?.(key);
+      if (v === undefined || v === null || String(v).trim?.() === "") return fallback;
+      return v;
+    } catch {
+      return fallback;
+    }
+  }
+
+  _destroyPreviewHls() {
+    if (this._previewHls) {
+      try {
+        this._previewHls.destroy?.();
+      } catch {
+        // ignore
+      }
+    }
+    this._previewHls = null;
+  }
+
+  _clearPreviewMediaSource() {
+    this._destroyPreviewHls();
+    const el = this._previewMediaEl;
+    if (el) {
+      try {
+        el.pause?.();
+      } catch {
+        // ignore
+      }
+
+      try {
+        el.removeAttribute?.("src");
+        el.src = "";
+        el.load?.();
+      } catch {
+        // ignore
+      }
+    }
+
+    this._previewSourceAttached = false;
+    this._previewIsHls = false;
+  }
+
+  async _attachHlsToPreview(url) {
+    const el = this._previewMediaEl;
+    if (!el || !url) return false;
+
+    const preferNative = !!this._getThemeSetting("hls_prefer_native", true);
+    if (preferNative && canPlayNativeHls(el)) {
+      // Safari/iOS
+      this._destroyPreviewHls();
+      el.src = url;
+      this._previewSourceAttached = true;
+      return true;
+    }
+
+    // Load hls.js for browsers without native support.
+    const hlsUrl = this._getThemeSetting("hls_js_url", "");
+    if (hlsUrl) {
+      try {
+        await loadScriptOnce(hlsUrl);
+      } catch {
+        // ignore
+      }
+    }
+
+    const Hls = window?.Hls;
+    if (!Hls || !Hls.isSupported?.()) {
+      // Fallback: try native anyway.
+      el.src = url;
+      this._previewSourceAttached = true;
+      return true;
+    }
+
+    const debug = !!this._getThemeSetting("hls_debug", false);
+
+    this._destroyPreviewHls();
+    const hls = new Hls({ debug });
+    this._previewHls = hls;
+
+    hls.attachMedia(el);
+    hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+      try {
+        hls.loadSource(url);
+      } catch {
+        // ignore
+      }
+    });
+
+    hls.on(Hls.Events.ERROR, (_evt, data) => {
+      // If fatal, destroy and let the user retry.
+      if (data?.fatal) {
+        this._destroyPreviewHls();
+      }
+    });
+
+    this._previewSourceAttached = true;
+    return true;
   }
 
   async _sendPreviewHeartbeat() {
@@ -1903,12 +2080,7 @@ toggleImageFullscreen(e) {
 
         // Remove the stream source so the user can press Play again to request a new token.
         try {
-          const el = this._previewMediaEl;
-          if (el) {
-            el.removeAttribute?.("src");
-            el.src = "";
-            el.load?.();
-          }
+          this._clearPreviewMediaSource();
         } catch {
           // ignore
         }
@@ -1977,13 +2149,16 @@ toggleImageFullscreen(e) {
     if (!this.previewOpen || this.previewItem?.public_id !== publicId) return;
 
     const url = res?.stream_url || null;
-    this.previewStreamUrl = url;
+    const hlsUrl = res?.hls_master_url || null;
+    const playbackUrl = hlsUrl || url;
+    this.previewStreamUrl = playbackUrl;
 
     // Store security flags + extracted token for heartbeat/revocation.
     this._previewSecurity = res?.security || null;
-    this._previewStreamToken = this._extractTokenFromStreamUrl(url);
+    this._previewStreamToken = res?.token || this._extractTokenFromStreamUrl(playbackUrl);
+    this._previewIsHls = !!hlsUrl;
 
-    return url;
+    return playbackUrl;
   }
 
   @action
@@ -2010,6 +2185,9 @@ toggleImageFullscreen(e) {
     this.previewOpen = true;
     this.previewItem = item;
     this.previewStreamUrl = null;
+    this._destroyPreviewHls();
+    this._previewSourceAttached = false;
+    this._previewIsHls = false;
     // Images need the URL immediately to display. For audio/video we defer token creation
     // until the user explicitly presses Play.
     this.previewLoading = mt === "image";
@@ -2093,12 +2271,7 @@ toggleImageFullscreen(e) {
 
     // Clear src to avoid leaving a stream URL in the DOM after closing.
     try {
-      const el = this._previewMediaEl;
-      if (el) {
-        el.removeAttribute?.("src");
-        el.src = "";
-        el.load?.();
-      }
+      this._clearPreviewMediaSource();
     } catch {
       // ignore
     }
@@ -2169,8 +2342,16 @@ toggleImageFullscreen(e) {
       const el = this._previewMediaEl;
       if (el && this.previewStreamUrl) {
         try {
-          el.src = this.previewStreamUrl;
-          el.load?.();
+          // Replace the previous source completely to ensure new token is used.
+          this._clearPreviewMediaSource();
+
+          if (this._isHlsUrl(this.previewStreamUrl)) {
+            await this._attachHlsToPreview(this.previewStreamUrl);
+          } else {
+            el.src = this.previewStreamUrl;
+            this._previewSourceAttached = true;
+            el.load?.();
+          }
           if (this.previewIsPlaying) {
             const p = el.play?.();
             if (p && typeof p.catch === "function") p.catch(() => {});
