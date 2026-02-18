@@ -1558,13 +1558,10 @@ onPreviewVideoMeta(e) {
     this.previewStreamUrl = null;
     this._previewStreamToken = null;
 
+    // Fully clear the media source (also destroys any hls.js instance) so replay
+    // can fetch and attach a fresh tokenized URL.
     try {
-      const el = this._previewMediaEl;
-      if (el) {
-        el.removeAttribute?.("src");
-        el.src = "";
-        el.load?.();
-      }
+      this._clearPreviewMediaSource();
     } catch {
       // ignore
     }
