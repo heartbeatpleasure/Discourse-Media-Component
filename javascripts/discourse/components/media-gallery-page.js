@@ -240,6 +240,7 @@ export default class MediaGalleryPage extends Component {
   _previewHls = null;
   _previewSourceAttached = false;
   _previewIsHls = false;
+  _previewTriedStreamFallback = false;
 
 
   // Cache the first available icon name for this Discourse instance
@@ -1685,10 +1686,18 @@ async togglePreviewPlayback(e) {
     // HLS: use native support when available, otherwise hls.js.
     if (mt === "video" && this._isHlsUrl(this.previewStreamUrl)) {
       if (!this._previewSourceAttached) {
+        let ok = false;
         try {
-          await this._attachHlsToPreview(this.previewStreamUrl);
+          ok = await this._attachHlsToPreview(this.previewStreamUrl);
         } catch {
-          // ignore
+          ok = false;
+        }
+
+        if (!ok) {
+          // If HLS cannot be attached (no native support, hls.js blocked, fatal manifest error),
+          // fall back to the tokenized MP4 stream.
+          await this._fallbackPreviewToStream({ reason: "hls_attach_failed" });
+          return;
         }
       }
     } else {
@@ -2013,10 +2022,8 @@ toggleImageFullscreen(e) {
 
     const Hls = window?.Hls;
     if (!Hls || !Hls.isSupported?.()) {
-      // Fallback: try native anyway.
-      el.src = url;
-      this._previewSourceAttached = true;
-      return true;
+      // No HLS support (and no native support, otherwise we would have returned earlier).
+      return false;
     }
 
     const debug = !!this._getThemeSetting("hls_debug", false);
@@ -2034,14 +2041,78 @@ toggleImageFullscreen(e) {
       }
     });
 
-    hls.on(Hls.Events.ERROR, (_evt, data) => {
-      // If fatal, destroy and let the user retry.
+    hls.on(Hls.Events.ERROR, async (_evt, data) => {
+      // If fatal, destroy and fall back to MP4 stream (best-effort).
       if (data?.fatal) {
         this._destroyPreviewHls();
+        await this._fallbackPreviewToStream({ reason: `hls_fatal_${data?.type || "error"}` });
       }
     });
 
     this._previewSourceAttached = true;
+    return true;
+  }
+
+  async _fallbackPreviewToStream({ reason } = {}) {
+    if (this._previewTriedStreamFallback) return false;
+    if (!this.previewOpen) return false;
+
+    const el = this._previewMediaEl;
+    const publicId = this.previewItem?.public_id;
+    if (!el || !publicId) return false;
+
+    this._previewTriedStreamFallback = true;
+
+    // Revoke the HLS token so it can't be reused, then request a fresh stream token.
+    try {
+      this._previewRevokePromise = this._revokePreviewToken();
+    } catch {
+      // ignore
+    }
+
+    this._stopPreviewHeartbeat();
+
+    try {
+      this._clearPreviewMediaSource();
+    } catch {
+      // ignore
+    }
+
+    this.previewStreamUrl = null;
+    this._previewStreamToken = null;
+    this._previewSourceAttached = false;
+    this._previewIsHls = false;
+
+    try {
+      await this.fetchPreviewStreamUrl({ resetRetry: true, forceStream: true });
+    } catch (e) {
+      this.errorMessage =
+        e?.jqXHR?.responseJSON?.errors?.join(", ") || e?.message || "Error";
+      return false;
+    }
+
+    if (!this.previewStreamUrl) return false;
+
+    try {
+      el.src = this.previewStreamUrl;
+      this._previewSourceAttached = true;
+      try {
+        el.currentTime = 0;
+      } catch {
+        // ignore
+      }
+      el.load?.();
+    } catch {
+      // ignore
+    }
+
+    try {
+      const p = el.play?.();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    } catch {
+      // ignore
+    }
+
     return true;
   }
 
@@ -2133,14 +2204,15 @@ toggleImageFullscreen(e) {
   }
 
 
-  async fetchPreviewStreamUrl({ resetRetry } = { resetRetry: false }) {
+  async fetchPreviewStreamUrl({ resetRetry, forceStream } = { resetRetry: false, forceStream: false }) {
     if (!this.previewItem?.public_id) return;
 
     const publicId = this.previewItem.public_id;
 
     if (resetRetry) this.previewRetryCount = 0;
 
-    const res = await ajax(`/media/${publicId}/play`, { type: "GET" });
+    const qs = forceStream ? "?force_stream=1" : "";
+    const res = await ajax(`/media/${publicId}/play${qs}`, { type: "GET" });
 
     // If the preview was closed/switched while awaiting the request, ignore the response.
     if (!this.previewOpen || this.previewItem?.public_id !== publicId) return;
@@ -2185,6 +2257,7 @@ toggleImageFullscreen(e) {
     this._destroyPreviewHls();
     this._previewSourceAttached = false;
     this._previewIsHls = false;
+    this._previewTriedStreamFallback = false;
     // Images need the URL immediately to display. For audio/video we defer token creation
     // until the user explicitly presses Play.
     this.previewLoading = mt === "image";
