@@ -433,19 +433,16 @@
                 </button>
 
                 <div class="hb-media-library-row__actions">
-                  <button
-                    class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
-                    type="button"
-                    disabled={{item._likePending}}
-                    aria-label={{if item.liked "Unlike" "Like"}}
-                    {{on "click" (fn this.toggleLike item)}}
-                  >
-                    <span class="hb-media-like__count">{{item.likes_count}}</span>
-                    {{d-icon (if item.liked "heart" "far-heart")}}
-                  </button>
-
                   {{#if this.isMine}}
                     <div class="right-actions right-actions--stacked">
+                      <button
+                        class="btn btn-small btn-default"
+                        type="button"
+                        {{on "click" (fn this.openEditModal item)}}
+                      >
+                        {{i18n "media_gallery.edit"}}
+                      </button>
+
                       <button
                         class="btn btn-small btn-danger"
                         type="button"
@@ -456,20 +453,23 @@
                         Delete
                       </button>
 
-                      <button
-                        class="btn btn-small btn-default"
-                        type="button"
-                        {{on "click" (fn this.openEditModal item)}}
-                      >
-                        {{i18n "media_gallery.edit"}}
-                      </button>
-
                       {{#if (eq item.status "failed")}}
                         <button class="btn btn-small btn-danger" type="button" {{on "click" (fn this.retryProcessing item)}}>
                           {{i18n "media_gallery.retry"}}
                         </button>
                       {{/if}}
                     </div>
+                  {{else}}
+                    <button
+                      class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
+                      type="button"
+                      disabled={{item._likePending}}
+                      aria-label={{if item.liked "Unlike" "Like"}}
+                      {{on "click" (fn this.toggleLike item)}}
+                    >
+                      <span class="hb-media-like__count">{{item.likes_count}}</span>
+                      {{d-icon (if item.liked "heart" "far-heart")}}
+                    </button>
                   {{/if}}
                 </div>
               </div>
@@ -505,30 +505,47 @@
                 </div>
               {{/if}}
 
-              {{#if (or item.gender item.tags (and this.isMine item.status))}}
-  <div class="hb-media-library-row__footerBadges">
-    {{#if (and this.isMine item.status)}}
-      <span
-        class={{concat
-          "hb-media-library-badge "
-          (if (eq item.status "ready") "hb-media-library-badge--ok" (if (eq item.status "failed") "hb-media-library-badge--warn" ""))
-        }}
-      >
-        {{item.status}}
-      </span>
-    {{/if}}
+              {{#if (or item.gender item.tags (and this.isMine item.status) this.isMine)}}
+                <div class="hb-media-library-row__footer">
+                  <div class="hb-media-library-row__footerBadges">
+                    {{#if (and this.isMine item.status)}}
+                      <span
+                        class={{concat
+                          "hb-media-library-badge "
+                          (if (eq item.status "ready") "hb-media-library-badge--ok" (if (eq item.status "failed") "hb-media-library-badge--warn" ""))
+                        }}
+                      >
+                        {{item.status}}
+                      </span>
+                    {{/if}}
 
-    {{#if item.gender}}
-      <span class="hb-media-library-badge">{{this.prettyGender item.gender}}</span>
-    {{/if}}
+                    {{#if item.gender}}
+                      <span class="hb-media-library-badge">{{this.prettyGender item.gender}}</span>
+                    {{/if}}
 
-    {{#if item.tags}}
-      {{#each item.tags as |t|}}
-        <span class="hb-media-library-badge">{{t}}</span>
-      {{/each}}
-    {{/if}}
-  </div>
-{{/if}}
+                    {{#if item.tags}}
+                      {{#each item.tags as |t|}}
+                        <span class="hb-media-library-badge">{{t}}</span>
+                      {{/each}}
+                    {{/if}}
+                  </div>
+
+                  {{#if this.isMine}}
+                    <div class="hb-media-library-row__footerActions">
+                      <button
+                        class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
+                        type="button"
+                        disabled={{item._likePending}}
+                        aria-label={{if item.liked "Unlike" "Like"}}
+                        {{on "click" (fn this.toggleLike item)}}
+                      >
+                        <span class="hb-media-like__count">{{item.likes_count}}</span>
+                        {{d-icon (if item.liked "heart" "far-heart")}}
+                      </button>
+                    </div>
+                  {{/if}}
+                </div>
+              {{/if}}
             </div>
           </article>
         {{/each}}
