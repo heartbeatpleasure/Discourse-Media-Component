@@ -422,7 +422,7 @@
               </div>
             </button>
 
-            <div class="hb-media-library-row__content">
+            <div class={{concat "hb-media-library-row__content" (if this.isMine " hb-media-library-row__content--mine" "")}}>
               <div class="hb-media-library-row__headline">
                 <button
                   class="hb-media-library-row__title"
@@ -432,7 +432,7 @@
                   {{item.title}}
                 </button>
 
-                <div class="hb-media-library-row__actions">
+                <div class={{concat "hb-media-library-row__actions" (if this.isMine " hb-media-library-row__actions--mine" "")}}>
                   {{#if this.isMine}}
                     <div class="right-actions right-actions--stacked">
                       <button
