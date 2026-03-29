@@ -946,9 +946,9 @@
   {{!-- Edit modal --}}
   {{#if this.editOpen}}
     <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closeEditModal}}>
-      <div class="hb-media-library-modal hb-media-library-modal--form" {{on "click" this.stopBackdropClick}}>
+      <div class="hb-media-library-modal hb-media-library-modal--form" {{on "click" this.handleEditModalClick}}>
         <div class="hb-media-library-modal-header">
-          <div class="title">{{i18n "media_gallery.edit_title"}}</div>
+          <div class="title">Edit media item</div>
           <button class="btn btn-default" type="button" disabled={{this.editBusy}} {{on "click" this.closeEditModal}}>
             {{i18n "media_gallery.cancel"}}
           </button>

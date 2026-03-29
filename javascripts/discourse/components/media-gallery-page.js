@@ -1310,6 +1310,15 @@ export default class MediaGalleryPage extends Component {
   }
 
   @action
+  handleEditModalClick(e) {
+    const target = e?.target;
+    if (!target?.closest?.('[data-hb-ms="edit"]')) {
+      this.editTagsOpen = false;
+    }
+    e?.stopPropagation?.();
+  }
+
+  @action
   async confirmEdit() {
     const publicId = this.editItem?.public_id;
     if (!publicId) return;
