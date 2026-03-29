@@ -531,7 +531,7 @@
                   </div>
 
                   {{#if this.isMine}}
-                    <div class="hb-media-library-row__footerActions">
+                    <div class={{concat "hb-media-library-row__footerActions" (if this.isMine " hb-media-library-row__footerActions--mine" "")}}>
                       <button
                         class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
                         type="button"
@@ -1021,13 +1021,13 @@
             <div class="hb-field hb-field--span2">
               <label class="form-label">{{i18n "media_gallery.gender_label"}}</label>
               <select {{on "change" this.setEditGender}} value={{this.editGender}}>
-                <option value="">{{i18n "media_gallery.genders.select_placeholder"}}</option>
-                <option value="male">{{i18n "media_gallery.genders.male"}}</option>
-                <option value="female">{{i18n "media_gallery.genders.female"}}</option>
-                <option value="both">{{i18n "media_gallery.genders.both"}}</option>
-                <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
-                <option value="objects">{{i18n "media_gallery.genders.objects"}}</option>
-                <option value="other">{{i18n "media_gallery.genders.other"}}</option>
+                <option value="" selected={{eq this.editGender ""}}>{{i18n "media_gallery.genders.select_placeholder"}}</option>
+                <option value="male" selected={{eq this.editGender "male"}}>{{i18n "media_gallery.genders.male"}}</option>
+                <option value="female" selected={{eq this.editGender "female"}}>{{i18n "media_gallery.genders.female"}}</option>
+                <option value="both" selected={{eq this.editGender "both"}}>{{i18n "media_gallery.genders.both"}}</option>
+                <option value="non_binary" selected={{eq this.editGender "non_binary"}}>{{i18n "media_gallery.genders.non_binary"}}</option>
+                <option value="objects" selected={{eq this.editGender "objects"}}>{{i18n "media_gallery.genders.objects"}}</option>
+                <option value="other" selected={{eq this.editGender "other"}}>{{i18n "media_gallery.genders.other"}}</option>
               </select>
             </div>
           </div>

@@ -145,6 +145,54 @@ function stripLeadingDecorations(value) {
   return String(value || "").replace(/^[^A-Za-z0-9]+/, "").trim();
 }
 
+function normalizeGenderValue(raw) {
+  const input = String(raw || "").trim();
+  if (!input) return "";
+
+  const normalized = input.toLowerCase().replace(/[\s-]+/g, "_");
+  if (Object.prototype.hasOwnProperty.call(GENDER_LABEL_FALLBACKS, normalized)) {
+    return normalized;
+  }
+
+  const stripped = stripLeadingDecorations(input).toLowerCase();
+  const compact = stripped.replace(/[\s_-]+/g, "");
+
+  for (const [key, fallback] of Object.entries(GENDER_LABEL_FALLBACKS)) {
+    const keyVariants = [
+      key,
+      key.replace(/_/g, " "),
+      String(fallback || "").trim().toLowerCase(),
+    ];
+
+    try {
+      const i18nKey = `media_gallery.genders.${key}`;
+      if (I18n?.exists?.(i18nKey)) {
+        keyVariants.push(stripLeadingDecorations(I18n.t(i18nKey)).toLowerCase());
+      }
+    } catch {
+      // ignore and keep the static variants
+    }
+
+    if (
+      keyVariants.some((variant) => {
+        const v = String(variant || "").trim().toLowerCase();
+        return v === stripped || v.replace(/[\s_-]+/g, "") === compact;
+      })
+    ) {
+      return key;
+    }
+  }
+
+  if (stripped.includes("female")) return "female";
+  if (stripped.includes("male") && !stripped.includes("female")) return "male";
+  if (stripped.includes("non") && stripped.includes("binary")) return "non_binary";
+  if (stripped.includes("both")) return "both";
+  if (stripped.includes("object")) return "objects";
+  if (stripped.includes("other")) return "other";
+
+  return "";
+}
+
 function iconAvailable(name) {
   if (!name) return false;
   try {
@@ -1249,7 +1297,7 @@ export default class MediaGalleryPage extends Component {
     this.editBusy = false;
     this.editTitle = item.title || "";
     this.editDescription = item.description || "";
-    this.editGender = item.gender || "";
+    this.editGender = normalizeGenderValue(item.gender || item.file_contains || item.fileContains || item.contains || "");
     this.editTagsSelected = uniqStrings(item.tags || []);
     this.editTagsQuery = "";
     this.editTagsOpen = false;

@@ -540,6 +540,17 @@
     justify-content: flex-end;
   }
 
+  .hb-media-library-row__footerActions--mine {
+    @media (min-width: 721px) {
+      position: absolute;
+      right: 0;
+      bottom: 4px;
+      width: 108px;
+      margin-left: 0;
+      justify-content: flex-end;
+    }
+  }
+
   /* Shared pills/badges (used in list rows and modals) */
   .hb-media-library-badge {
     display: inline-flex;
