@@ -86,7 +86,7 @@
         </div>
 
         <div class="hb-field hb-field--span2">
-          <label class="form-label">Tags</label>
+          <label class="form-label">{{i18n "media_gallery.tags_plain_label"}}</label>
 
           <div class="hb-multi-select" data-hb-ms="upload">
             <div class="hb-multi-select__control">
@@ -103,7 +103,7 @@
                 <input
                   class="hb-multi-select__input"
                   type="text"
-                  placeholder="Search…"
+                  placeholder={{i18n "media_gallery.tag_search_placeholder"}}
                   value={{this.uploadTagsQuery}}
                   {{on "focus" this.openUploadTags}}
                   {{on "input" this.onUploadTagsQuery}}
@@ -111,7 +111,7 @@
                 />
               </div>
 
-              <button type="button" class="hb-multi-select__toggle" {{on "click" this.openUploadTags}} aria-label="Open">
+              <button type="button" class="hb-multi-select__toggle" {{on "click" this.openUploadTags}} aria-label={{i18n "media_gallery.tag_toggle_aria"}}>
                 +
               </button>
             </div>
@@ -125,7 +125,7 @@
                     </div>
                   {{/each}}
                 {{else}}
-                  <div class="hb-multi-select__empty">No matches</div>
+                  <div class="hb-multi-select__empty">{{i18n "media_gallery.tag_no_matches"}}</div>
                 {{/if}}
               </div>
             {{/if}}
@@ -278,7 +278,7 @@
       </div>
 
       <div class="hb-field hb-field--span2">
-        <label class="form-label">Tags</label>
+        <label class="form-label">{{i18n "media_gallery.tags_plain_label"}}</label>
 
         <div class="hb-multi-select" data-hb-ms="filter">
           <div class="hb-multi-select__control">
@@ -295,7 +295,7 @@
               <input
                 class="hb-multi-select__input"
                 type="text"
-                placeholder="Search…"
+                placeholder={{i18n "media_gallery.tag_search_placeholder"}}
                 value={{this.filterTagsQuery}}
                 {{on "focus" this.openFilterTags}}
                 {{on "input" this.onFilterTagsQuery}}
@@ -303,7 +303,7 @@
               />
             </div>
 
-            <button type="button" class="hb-multi-select__toggle" {{on "click" this.openFilterTags}} aria-label="Open">
+            <button type="button" class="hb-multi-select__toggle" {{on "click" this.openFilterTags}} aria-label={{i18n "media_gallery.tag_toggle_aria"}}>
               +
             </button>
           </div>
@@ -317,7 +317,7 @@
                   </div>
                 {{/each}}
               {{else}}
-                <div class="hb-multi-select__empty">No matches</div>
+                <div class="hb-multi-select__empty">{{i18n "media_gallery.tag_no_matches"}}</div>
               {{/if}}
             </div>
           {{/if}}
@@ -341,7 +341,7 @@
         <label class="form-label">{{i18n "media_gallery.per_page_label"}}</label>
         <select {{on "change" this.setPerPage}} value={{this.perPage}}>
           <option value="20">20</option>
-          <option value="30">30</option>
+          <option value="24">24</option>
           <option value="40">40</option>
         </select>
       </div>
@@ -447,7 +447,7 @@
                         class="btn btn-small btn-danger"
                         type="button"
                         disabled={{or (eq item.status "queued") (eq item.status "processing")}}
-                        title={{if (or (eq item.status "queued") (eq item.status "processing")) (i18n "media_gallery.processing_delete_notice") ""}}
+                        title={{if (or (eq item.status "queued") (eq item.status "processing")) (i18n "media_gallery.delete_processing_notice") ""}}
                         {{on "click" (fn this.openDeleteConfirm item)}}
                       >
                         Delete
@@ -948,7 +948,7 @@
     <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closeEditModal}}>
       <div class="hb-media-library-modal hb-media-library-modal--form" {{on "click" this.handleEditModalClick}}>
         <div class="hb-media-library-modal-header">
-          <div class="title">Edit media item</div>
+          <div class="title">{{i18n "media_gallery.edit_item_title"}}</div>
           <button class="btn btn-default" type="button" disabled={{this.editBusy}} {{on "click" this.closeEditModal}}>
             {{i18n "media_gallery.cancel"}}
           </button>
@@ -972,7 +972,7 @@
             </div>
 
             <div class="hb-field hb-field--span2">
-              <label class="form-label">Tags</label>
+              <label class="form-label">{{i18n "media_gallery.tags_plain_label"}}</label>
 
               <div class="hb-multi-select" data-hb-ms="edit">
                 <div class="hb-multi-select__control">
@@ -989,7 +989,7 @@
                     <input
                       class="hb-multi-select__input"
                       type="text"
-                      placeholder="Search…"
+                      placeholder={{i18n "media_gallery.tag_search_placeholder"}}
                       value={{this.editTagsQuery}}
                       {{on "focus" this.openEditTags}}
                       {{on "input" this.onEditTagsQuery}}
@@ -997,7 +997,7 @@
                     />
                   </div>
 
-                  <button type="button" class="hb-multi-select__toggle" {{on "click" this.openEditTags}} aria-label="Open">
+                  <button type="button" class="hb-multi-select__toggle" {{on "click" this.openEditTags}} aria-label={{i18n "media_gallery.tag_toggle_aria"}}>
                     +
                   </button>
                 </div>
@@ -1011,7 +1011,7 @@
                         </div>
                       {{/each}}
                     {{else}}
-                      <div class="hb-multi-select__empty">No matches</div>
+                      <div class="hb-multi-select__empty">{{i18n "media_gallery.tag_no_matches"}}</div>
                     {{/if}}
                   </div>
                 {{/if}}
@@ -1055,15 +1055,15 @@
     <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closeDeleteConfirm}}>
       <div class="hb-media-library-modal" {{on "click" this.stopBackdropClick}}>
         <div class="hb-media-library-modal-header">
-          <div class="title">{{i18n "media_gallery.delete_title"}}</div>
+          <div class="title">{{i18n "media_gallery.delete_item_title"}}</div>
           <button class="btn btn-default" type="button" disabled={{this.deleteBusy}} {{on "click" this.closeDeleteConfirm}}>
             {{i18n "media_gallery.cancel"}}
           </button>
         </div>
 
         <div class="hb-media-library-modal-body">
-          <p class="danger-text">{{i18n "media_gallery.delete_confirm"}}</p>
-          <p>{{i18n "media_gallery.delete_irreversible"}}</p>
+          <p class="danger-text">{{i18n "media_gallery.delete_confirm_prompt"}}</p>
+          <p>{{i18n "media_gallery.delete_confirm_irreversible"}}</p>
 
           {{#if this.deleteItem}}
             <p><strong>{{this.deleteItem.title}}</strong></p>
@@ -1076,7 +1076,7 @@
 
             <button class="btn btn-danger" type="button" disabled={{this.deleteBusy}} {{on "click" this.confirmDelete}}>
               {{#if this.deleteBusy}}
-                Deleting…
+                {{i18n "media_gallery.deleting"}}
               {{else}}
                 {{i18n "media_gallery.delete_permanently"}}
               {{/if}}
