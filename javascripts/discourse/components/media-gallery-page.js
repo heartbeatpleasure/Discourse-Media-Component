@@ -220,7 +220,7 @@ export default class MediaGalleryPage extends Component {
   // Data
   @tracked items = [];
   @tracked page = 1;
-  @tracked perPage = 24;
+  @tracked perPage = 20;
   @tracked total = 0;
 
   // Filters
@@ -916,7 +916,7 @@ export default class MediaGalleryPage extends Component {
   @action
   setPerPage(e) {
     const v = parseInt(e.target.value, 10);
-    this.perPage = Number.isFinite(v) ? v : 24;
+    this.perPage = Number.isFinite(v) ? Math.min(Math.max(v, 1), 50) : 20;
   }
 
   @action
