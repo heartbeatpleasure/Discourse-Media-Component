@@ -23,6 +23,7 @@ function stripExt(filename) {
   return filename?.replace(/\.[^/.]+$/, "") || filename;
 }
 
+
 function uniqStrings(arr) {
   const seen = new Set();
   const out = [];
@@ -127,6 +128,67 @@ const FULLSCREEN_ENTER_ICON_CANDIDATES = ["maximize", "expand"];
 const FULLSCREEN_EXIT_ICON_CANDIDATES = ["minimize", "compress"];
 const VOLUME_ON_ICON_CANDIDATES = ["volume-high", "volume-up"];
 const VOLUME_OFF_ICON_CANDIDATES = ["volume-xmark", "volume-mute"];
+
+const GENDER_LABEL_FALLBACKS = {
+  male: "Male hearts",
+  female: "Female hearts",
+  both: "Both male and female hearts",
+  non_binary: "Non-binary hearts",
+  objects: "Heart-related objects",
+  other: "Other",
+};
+
+function stripLeadingDecorations(value) {
+  return String(value || "").replace(/^[^A-Za-z0-9]+/, "").trim();
+}
+
+function normalizeGenderValue(raw) {
+  const input = String(raw || "").trim();
+  if (!input) return "";
+
+  const normalized = input.toLowerCase().replace(/[\s-]+/g, "_");
+  if (Object.prototype.hasOwnProperty.call(GENDER_LABEL_FALLBACKS, normalized)) {
+    return normalized;
+  }
+
+  const stripped = stripLeadingDecorations(input).toLowerCase();
+  const compact = stripped.replace(/[\s_-]+/g, "");
+
+  for (const [key, fallback] of Object.entries(GENDER_LABEL_FALLBACKS)) {
+    const keyVariants = [
+      key,
+      key.replace(/_/g, " "),
+      String(fallback || "").trim().toLowerCase(),
+    ];
+
+    try {
+      const i18nKey = `media_gallery.genders.${key}`;
+      if (I18n?.exists?.(i18nKey)) {
+        keyVariants.push(stripLeadingDecorations(I18n.t(i18nKey)).toLowerCase());
+      }
+    } catch {
+      // ignore and keep the static variants
+    }
+
+    if (
+      keyVariants.some((variant) => {
+        const v = String(variant || "").trim().toLowerCase();
+        return v === stripped || v.replace(/[\s_-]+/g, "") === compact;
+      })
+    ) {
+      return key;
+    }
+  }
+
+  if (stripped.includes("female")) return "female";
+  if (stripped.includes("male") && !stripped.includes("female")) return "male";
+  if (stripped.includes("non") && stripped.includes("binary")) return "non_binary";
+  if (stripped.includes("both")) return "both";
+  if (stripped.includes("object")) return "objects";
+  if (stripped.includes("other")) return "other";
+
+  return "";
+}
 
 function iconAvailable(name) {
   if (!name) return false;
@@ -568,11 +630,25 @@ export default class MediaGalleryPage extends Component {
   }
 
   prettyGender(gender) {
-    const g = String(gender || "").trim();
+    const g = String(gender || "").trim().toLowerCase();
     if (!g) return "";
+
     const key = `media_gallery.genders.${g}`;
-    const label = I18n.exists?.(key) ? I18n.t(key) : g;
-    return String(label || "").replace(/^[^A-Za-z0-9]+/, "").trim();
+    let label = null;
+
+    try {
+      if (I18n?.exists?.(key)) {
+        label = I18n.t(key);
+      }
+    } catch {
+      // ignore and use fallback below
+    }
+
+    if (!label || label === key || String(label).trim().toLowerCase() === g) {
+      label = GENDER_LABEL_FALLBACKS[g] || g;
+    }
+
+    return stripLeadingDecorations(label);
   }
   // -----------------------
   // Multi-select suggestions
@@ -1219,7 +1295,7 @@ export default class MediaGalleryPage extends Component {
     this.editBusy = false;
     this.editTitle = item.title || "";
     this.editDescription = item.description || "";
-    this.editGender = item.gender || "";
+    this.editGender = normalizeGenderValue(item.gender || item.file_contains || item.fileContains || item.contains || "");
     this.editTagsSelected = uniqStrings(item.tags || []);
     this.editTagsQuery = "";
     this.editTagsOpen = false;
@@ -1229,6 +1305,15 @@ export default class MediaGalleryPage extends Component {
   closeEditModal() {
     if (this.editBusy) return;
     this._resetEditForm();
+  }
+
+  @action
+  handleEditModalClick(e) {
+    const target = e?.target;
+    if (!target?.closest?.('[data-hb-ms="edit"]')) {
+      this.editTagsOpen = false;
+    }
+    e?.stopPropagation?.();
   }
 
   @action
