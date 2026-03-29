@@ -221,6 +221,17 @@ export default class MediaGalleryPage extends Component {
   @tracked deleteItem = null;
   @tracked deleteBusy = false;
 
+  // Edit modal
+  @tracked editOpen = false;
+  @tracked editItem = null;
+  @tracked editBusy = false;
+  @tracked editTitle = "";
+  @tracked editDescription = "";
+  @tracked editGender = "";
+  @tracked editTagsSelected = [];
+  @tracked editTagsQuery = "";
+  @tracked editTagsOpen = false;
+
   _pollTimer = null;
   _boundDocClick = null;
   _boundKeydown = null;
@@ -392,6 +403,13 @@ export default class MediaGalleryPage extends Component {
     return false;
   }
 
+  get editSubmitDisabled() {
+    if (this.editBusy) return true;
+    if (!this.editTitle?.trim()) return true;
+    if (!this.editGender) return true;
+    return false;
+  }
+
   get isVideoUploadSelected() {
     const f = this.uploadFile;
     if (!f) return false;
@@ -556,7 +574,8 @@ export default class MediaGalleryPage extends Component {
     const g = String(gender || "").trim();
     if (!g) return "";
     const key = `media_gallery.genders.${g}`;
-    return I18n.exists?.(key) ? I18n.t(key) : g;
+    const label = I18n.exists?.(key) ? I18n.t(key) : g;
+    return String(label || "").replace(/^[^A-Za-z0-9]+/, "").trim();
   }
   // -----------------------
   // Multi-select suggestions
@@ -593,6 +612,22 @@ export default class MediaGalleryPage extends Component {
     return [this.uploadTagsQuery.trim()];
   }
 
+  get editTagSuggestions() {
+    const q = (this.editTagsQuery || "").trim().toLowerCase();
+    const selected = new Set((this.editTagsSelected || []).map((t) => String(t).toLowerCase()));
+
+    if (this.allowedTags.length) {
+      return this.allowedTags
+        .filter((t) => !selected.has(String(t).toLowerCase()))
+        .filter((t) => (q ? String(t).toLowerCase().includes(q) : true))
+        .slice(0, 50);
+    }
+
+    if (!q) return [];
+    if (selected.has(q)) return [];
+    return [this.editTagsQuery.trim()];
+  }
+
   // -----------------------
   // Document click (close menus)
   // -----------------------
@@ -604,6 +639,7 @@ export default class MediaGalleryPage extends Component {
     if (!inside) {
       this.filterTagsOpen = false;
       this.uploadTagsOpen = false;
+      this.editTagsOpen = false;
     }
   }
 
@@ -1102,6 +1138,152 @@ export default class MediaGalleryPage extends Component {
   }
 
   // -----------------------
+  // Edit flow (My uploads only)
+  // -----------------------
+  _resetEditForm() {
+    this.editOpen = false;
+    this.editItem = null;
+    this.editBusy = false;
+    this.editTitle = "";
+    this.editDescription = "";
+    this.editGender = "";
+    this.editTagsSelected = [];
+    this.editTagsQuery = "";
+    this.editTagsOpen = false;
+  }
+
+  @action setEditTitle(e) { this.editTitle = e.target.value; }
+  @action setEditDescription(e) { this.editDescription = e.target.value; }
+  @action setEditGender(e) { this.editGender = e.target.value; }
+
+  @action
+  openEditTags() {
+    this.editTagsOpen = true;
+  }
+
+  @action
+  onEditTagsQuery(e) {
+    this.editTagsQuery = e.target.value;
+    this.editTagsOpen = true;
+  }
+
+  @action
+  addEditTag(tag) {
+    const t = String(tag || "").trim();
+    if (!t) return;
+
+    this.editTagsSelected = uniqStrings([...(this.editTagsSelected || []), t]);
+    this.editTagsQuery = "";
+    this.editTagsOpen = true;
+  }
+
+  @action
+  removeEditTag(tag, ev) {
+    ev?.stopPropagation?.();
+    const t = String(tag || "").trim().toLowerCase();
+    this.editTagsSelected = (this.editTagsSelected || []).filter((x) => String(x).toLowerCase() !== t);
+  }
+
+  @action
+  onEditTagsKeydown(e) {
+    if (e.key === "Escape") {
+      this.editTagsOpen = false;
+      return;
+    }
+
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+
+    const candidate = (this.editTagsQuery || "").trim();
+    if (!candidate) return;
+
+    if (this.allowedTags.length) {
+      const match = this.allowedTags.find((x) => String(x).toLowerCase() === candidate.toLowerCase());
+      if (match) {
+        this.addEditTag(match);
+      }
+      return;
+    }
+
+    this.addEditTag(candidate);
+  }
+
+  @action
+  openEditModal(item, ev) {
+    ev?.stopPropagation?.();
+    if (!this.isMine) return;
+    if (!item?.public_id) return;
+
+    this.errorMessage = null;
+    this.noticeMessage = null;
+
+    this.editOpen = true;
+    this.editItem = item;
+    this.editBusy = false;
+    this.editTitle = item.title || "";
+    this.editDescription = item.description || "";
+    this.editGender = item.gender || "";
+    this.editTagsSelected = uniqStrings(item.tags || []);
+    this.editTagsQuery = "";
+    this.editTagsOpen = false;
+  }
+
+  @action
+  closeEditModal() {
+    if (this.editBusy) return;
+    this._resetEditForm();
+  }
+
+  @action
+  async confirmEdit() {
+    const publicId = this.editItem?.public_id;
+    if (!publicId) return;
+
+    if (!this.editTitle?.trim()) {
+      this.errorMessage = I18n.t("media_gallery.errors.missing_title");
+      return;
+    }
+
+    if (!this.editGender) {
+      this.errorMessage = I18n.t("media_gallery.errors.missing_gender");
+      return;
+    }
+
+    this.editBusy = true;
+    this.errorMessage = null;
+    this.noticeMessage = null;
+
+    const payload = {
+      title: this.editTitle.trim(),
+      description: this.editDescription?.trim() || "",
+      gender: this.editGender,
+      tags: uniqStrings(this.editTagsSelected || []),
+    };
+
+    try {
+      const res = await ajax(`/media/${publicId}`, { type: "PUT", data: payload });
+      const responseItem = res?.media_item || { ...this.editItem, ...payload };
+      const updated = {
+        ...responseItem,
+        _hb_media_type: this._normalizeMediaType(
+          responseItem.media_type || responseItem.type || responseItem.mediaType
+        ),
+      };
+
+      this._updateItemByPublicId(publicId, updated);
+      this.noticeMessage = I18n.t("media_gallery.updated_notice");
+      this._resetEditForm();
+      await this.refresh({ silent: true });
+    } catch (e) {
+      this.editBusy = false;
+      this.errorMessage =
+        e?.jqXHR?.responseJSON?.errors?.join(", ") ||
+        e?.message ||
+        I18n.t("media_gallery.errors.update_failed");
+    }
+  }
+
+  // -----------------------
   // Delete flow (My uploads only)
   // -----------------------
   @action
@@ -1111,7 +1293,7 @@ export default class MediaGalleryPage extends Component {
     if (!item?.public_id) return;
 
     if (isProcessingStatus(item.status)) {
-      this.noticeMessage = "You can delete this item after processing is complete.";
+      this.noticeMessage = I18n.t("media_gallery.processing_delete_notice");
       return;
     }
 
@@ -1146,7 +1328,7 @@ export default class MediaGalleryPage extends Component {
         this.closePreview();
       }
 
-      this.noticeMessage = "Media item deleted.";
+      this.noticeMessage = I18n.t("media_gallery.deleted_notice");
       this.deleteOpen = false;
       this.deleteItem = null;
       this.deleteBusy = false;

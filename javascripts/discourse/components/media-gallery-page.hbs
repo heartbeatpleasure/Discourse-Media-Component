@@ -445,22 +445,30 @@
                   </button>
 
                   {{#if this.isMine}}
-                    <div class="right-actions">
+                    <div class="right-actions right-actions--stacked">
+                      <button
+                        class="btn btn-small btn-danger"
+                        type="button"
+                        disabled={{or (eq item.status "queued") (eq item.status "processing")}}
+                        title={{if (or (eq item.status "queued") (eq item.status "processing")) (i18n "media_gallery.processing_delete_notice") ""}}
+                        {{on "click" (fn this.openDeleteConfirm item)}}
+                      >
+                        Delete
+                      </button>
+
+                      <button
+                        class="btn btn-small btn-default"
+                        type="button"
+                        {{on "click" (fn this.openEditModal item)}}
+                      >
+                        {{i18n "media_gallery.edit"}}
+                      </button>
+
                       {{#if (eq item.status "failed")}}
                         <button class="btn btn-small btn-danger" type="button" {{on "click" (fn this.retryProcessing item)}}>
                           {{i18n "media_gallery.retry"}}
                         </button>
                       {{/if}}
-
-                      <button
-                        class="btn btn-small btn-danger"
-                        type="button"
-                        disabled={{or (eq item.status "queued") (eq item.status "processing")}}
-                        title={{if (or (eq item.status "queued") (eq item.status "processing")) "You can delete this item after processing is complete." ""}}
-                        {{on "click" (fn this.openDeleteConfirm item)}}
-                      >
-                        Delete
-                      </button>
                     </div>
                   {{/if}}
                 </div>
@@ -918,20 +926,127 @@
     </div>
   {{/if}}
 
+  {{!-- Edit modal --}}
+  {{#if this.editOpen}}
+    <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closeEditModal}}>
+      <div class="hb-media-library-modal hb-media-library-modal--form" {{on "click" this.stopBackdropClick}}>
+        <div class="hb-media-library-modal-header">
+          <div class="title">{{i18n "media_gallery.edit_title"}}</div>
+          <button class="btn btn-default" type="button" disabled={{this.editBusy}} {{on "click" this.closeEditModal}}>
+            {{i18n "media_gallery.cancel"}}
+          </button>
+        </div>
+
+        <div class="hb-media-library-modal-body">
+          <div class="hb-media-library-form-grid">
+            <div class="hb-field hb-field--span2">
+              <label class="form-label">{{i18n "media_gallery.title_label"}}</label>
+              <input
+                type="text"
+                value={{this.editTitle}}
+                placeholder={{i18n "media_gallery.title_placeholder"}}
+                {{on "input" this.setEditTitle}}
+              />
+            </div>
+
+            <div class="hb-field hb-field--span2">
+              <label class="form-label">{{i18n "media_gallery.description_label"}}</label>
+              <textarea rows="5" value={{this.editDescription}} {{on "input" this.setEditDescription}}></textarea>
+            </div>
+
+            <div class="hb-field hb-field--span2">
+              <label class="form-label">Tags</label>
+
+              <div class="hb-multi-select" data-hb-ms="edit">
+                <div class="hb-multi-select__control">
+                  <div class="hb-multi-select__pills">
+                    {{#each this.editTagsSelected as |t|}}
+                      <span class="hb-multi-select__pill">
+                        <span class="hb-multi-select__pill-text">{{t}}</span>
+                        <button type="button" class="hb-multi-select__remove" {{on "click" (fn this.removeEditTag t)}}>
+                          ×
+                        </button>
+                      </span>
+                    {{/each}}
+
+                    <input
+                      class="hb-multi-select__input"
+                      type="text"
+                      placeholder="Search…"
+                      value={{this.editTagsQuery}}
+                      {{on "focus" this.openEditTags}}
+                      {{on "input" this.onEditTagsQuery}}
+                      {{on "keydown" this.onEditTagsKeydown}}
+                    />
+                  </div>
+
+                  <button type="button" class="hb-multi-select__toggle" {{on "click" this.openEditTags}} aria-label="Open">
+                    +
+                  </button>
+                </div>
+
+                {{#if this.editTagsOpen}}
+                  <div class="hb-multi-select__menu">
+                    {{#if (gt this.editTagSuggestions.length 0)}}
+                      {{#each this.editTagSuggestions as |opt|}}
+                        <div class="hb-multi-select__option" {{on "mousedown" (fn this.addEditTag opt)}}>
+                          {{opt}}
+                        </div>
+                      {{/each}}
+                    {{else}}
+                      <div class="hb-multi-select__empty">No matches</div>
+                    {{/if}}
+                  </div>
+                {{/if}}
+              </div>
+            </div>
+
+            <div class="hb-field hb-field--span2">
+              <label class="form-label">{{i18n "media_gallery.gender_label"}}</label>
+              <select {{on "change" this.setEditGender}} value={{this.editGender}}>
+                <option value="">{{i18n "media_gallery.genders.select_placeholder"}}</option>
+                <option value="male">{{i18n "media_gallery.genders.male"}}</option>
+                <option value="female">{{i18n "media_gallery.genders.female"}}</option>
+                <option value="both">{{i18n "media_gallery.genders.both"}}</option>
+                <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
+                <option value="objects">{{i18n "media_gallery.genders.objects"}}</option>
+                <option value="other">{{i18n "media_gallery.genders.other"}}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="hb-media-library-actions-row">
+            <button class="btn btn-default" type="button" disabled={{this.editBusy}} {{on "click" this.closeEditModal}}>
+              {{i18n "media_gallery.cancel"}}
+            </button>
+
+            <button class="btn btn-primary" type="button" disabled={{this.editSubmitDisabled}} {{on "click" this.confirmEdit}}>
+              {{#if this.editBusy}}
+                {{i18n "media_gallery.saving"}}
+              {{else}}
+                {{i18n "media_gallery.save_changes"}}
+              {{/if}}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {{/if}}
+
   {{!-- Delete confirmation modal --}}
   {{#if this.deleteOpen}}
     <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closeDeleteConfirm}}>
       <div class="hb-media-library-modal" {{on "click" this.stopBackdropClick}}>
         <div class="hb-media-library-modal-header">
-          <div class="title">Delete media item</div>
+          <div class="title">{{i18n "media_gallery.delete_title"}}</div>
           <button class="btn btn-default" type="button" disabled={{this.deleteBusy}} {{on "click" this.closeDeleteConfirm}}>
-            Cancel
+            {{i18n "media_gallery.cancel"}}
           </button>
         </div>
 
         <div class="hb-media-library-modal-body">
-          <p class="danger-text">Are you sure you want to delete this file?</p>
-          <p>This action cannot be undone.</p>
+          <p class="danger-text">{{i18n "media_gallery.delete_confirm"}}</p>
+          <p>{{i18n "media_gallery.delete_irreversible"}}</p>
 
           {{#if this.deleteItem}}
             <p><strong>{{this.deleteItem.title}}</strong></p>
@@ -939,14 +1054,14 @@
 
           <div class="hb-media-library-actions-row">
             <button class="btn btn-default" type="button" disabled={{this.deleteBusy}} {{on "click" this.closeDeleteConfirm}}>
-              Cancel
+              {{i18n "media_gallery.cancel"}}
             </button>
 
             <button class="btn btn-danger" type="button" disabled={{this.deleteBusy}} {{on "click" this.confirmDelete}}>
               {{#if this.deleteBusy}}
                 Deleting…
               {{else}}
-                Delete permanently
+                {{i18n "media_gallery.delete_permanently"}}
               {{/if}}
             </button>
           </div>
