@@ -132,6 +132,19 @@ const FULLSCREEN_EXIT_ICON_CANDIDATES = ["minimize", "compress"];
 const VOLUME_ON_ICON_CANDIDATES = ["volume-high", "volume-up"];
 const VOLUME_OFF_ICON_CANDIDATES = ["volume-xmark", "volume-mute"];
 
+const GENDER_LABEL_FALLBACKS = {
+  male: "Male hearts",
+  female: "Female hearts",
+  both: "Both male and female hearts",
+  non_binary: "Non-binary hearts",
+  objects: "Heart-related objects",
+  other: "Other",
+};
+
+function stripLeadingDecorations(value) {
+  return String(value || "").replace(/^[^A-Za-z0-9]+/, "").trim();
+}
+
 function iconAvailable(name) {
   if (!name) return false;
   try {
@@ -571,11 +584,25 @@ export default class MediaGalleryPage extends Component {
   }
 
   prettyGender(gender) {
-    const g = String(gender || "").trim();
+    const g = String(gender || "").trim().toLowerCase();
     if (!g) return "";
+
     const key = `media_gallery.genders.${g}`;
-    const label = I18n.exists?.(key) ? I18n.t(key) : g;
-    return String(label || "").replace(/^[^A-Za-z0-9]+/, "").trim();
+    let label = null;
+
+    try {
+      if (I18n?.exists?.(key)) {
+        label = I18n.t(key);
+      }
+    } catch {
+      // ignore and use fallback below
+    }
+
+    if (!label || label === key || String(label).trim().toLowerCase() === g) {
+      label = GENDER_LABEL_FALLBACKS[g] || g;
+    }
+
+    return stripLeadingDecorations(label);
   }
   // -----------------------
   // Multi-select suggestions
