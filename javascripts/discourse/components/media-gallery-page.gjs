@@ -210,6 +210,21 @@ function iconAvailable(name) {
   }
 }
 
+function normalizeThemeUploadUrl(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    return (
+      value.url ||
+      value.upload_url ||
+      value.original_url ||
+      value.short_url ||
+      ""
+    );
+  }
+  return String(value || "");
+}
+
 export default class MediaGalleryPage extends Component {
   @service currentUser;
   @service siteSettings;
@@ -362,6 +377,10 @@ export default class MediaGalleryPage extends Component {
 
   get previewMediaType() {
     return this.previewItem?._hb_media_type || this._normalizeMediaType(this.previewItem?.media_type || this.previewItem?.type);
+  }
+
+  get audioPlaceholderUrl() {
+    return normalizeThemeUploadUrl(this.themeSettings?.audio_placeholder);
   }
 
   constructor() {
@@ -3156,8 +3175,8 @@ toggleImageFullscreen(e) {
                 {{on "click" (fn this.openPreview item)}}
               >
                 <div class="hb-media-library-row__thumb {{if (or (not (eq item.status "ready")) item._thumbFailed (not item.thumbnail_url)) "hb-media-library-row__thumb--placeholder"}}">
-                  {{#if (and (eq item.media_type "audio") this.themeSettings.audio_placeholder (eq item.status "ready"))}}
-                    <img alt="" src={{this.themeSettings.audio_placeholder}} loading="lazy" decoding="async" />
+                  {{#if (and (eq item._hb_media_type "audio") this.audioPlaceholderUrl (eq item.status "ready"))}}
+                    <img alt="" src={{this.audioPlaceholderUrl}} loading="lazy" decoding="async" />
                   {{else if (and (eq item.status "ready") item.thumbnail_url (not item._thumbFailed))}}
                     <img
                       alt=""
@@ -3170,13 +3189,13 @@ toggleImageFullscreen(e) {
                     />
                   {{else}}
                     <span class="hb-media-library-row__thumbLoading">
-                      {{#if (eq item.media_type "audio")}}
+                      {{#if (eq item._hb_media_type "audio")}}
                         <span class="hb-media-library-audio-thumb">
-                          {{#if this.themeSettings.audio_placeholder}}
+                          {{#if this.audioPlaceholderUrl}}
                             <img
                               class="hb-media-library-audio-thumb__img"
                               alt=""
-                              src={{this.themeSettings.audio_placeholder}}
+                              src={{this.audioPlaceholderUrl}}
                               loading="lazy"
                               decoding="async"
                             />
@@ -3198,7 +3217,7 @@ toggleImageFullscreen(e) {
                   {{/if}}
 
                   <div class="hb-media-library-row__thumbOverlay" aria-hidden="true">
-                    <span class="hb-media-library-row__typeBadge">{{item.media_type}}</span>
+                    <span class="hb-media-library-row__typeBadge">{{or item._hb_media_type item.media_type}}</span>
                     {{#if item.duration_seconds}}
                       <span class="hb-media-library-row__duration">{{this.formatDuration item.duration_seconds}}</span>
                     {{/if}}
@@ -3371,7 +3390,7 @@ toggleImageFullscreen(e) {
               <p>{{i18n "loading"}}</p>
             {{else}}
               <div class="hb-media-preview">
-                <div class={{concat "hb-media-preview__media " (if (or (eq this.previewItem.media_type "video") (eq this.previewItem.media_type "audio")) "has-controls" "")}}>
+                <div class={{concat "hb-media-preview__media " (if (or (eq this.previewMediaType "video") (eq this.previewMediaType "audio")) "has-controls" "")}}>
                   <div class={{concat "hb-media-preview__player " this.previewAspectClass (if this.previewPseudoFullscreen " is-pseudo-fullscreen" "")}} style={{this.previewPlayerStyle}}>
                     {{#if (eq this.previewItem.media_type "image")}}
                       <div class="hb-media-preview__imageWrap">
@@ -3404,7 +3423,7 @@ toggleImageFullscreen(e) {
                           {{/if}}
                         </button>
                       </div>
-                    {{else if (eq this.previewItem.media_type "video")}}
+                    {{else if (eq this.previewMediaType "video")}}
                       <div
                         class="hb-media-player hb-media-player--video"
                         {{on "contextmenu" this.blockContextMenu}}
@@ -3535,14 +3554,14 @@ toggleImageFullscreen(e) {
                           </button>
                         </div>
                       </div>
-                    {{else if (eq this.previewItem.media_type "audio")}}
+                    {{else if (eq this.previewMediaType "audio")}}
                       <div
                         class="hb-media-player hb-media-player--audio"
                         {{on "contextmenu" this.blockContextMenu}}
                         {{on "mousedown" this.blockRightMouseDown}}
                       >
-                        {{#if this.themeSettings.audio_placeholder}}
-                          <img class="hb-media-player__poster" alt="" src={{this.themeSettings.audio_placeholder}} />
+                        {{#if this.audioPlaceholderUrl}}
+                          <img class="hb-media-player__poster" alt="" src={{this.audioPlaceholderUrl}} />
                         {{/if}}
                         <audio
                           class="hb-media-player__media"
