@@ -380,7 +380,21 @@ export default class MediaGalleryPage extends Component {
   }
 
   get audioPlaceholderUrl() {
-    return normalizeThemeUploadUrl(this.themeSettings?.audio_placeholder);
+    let raw;
+
+    try {
+      if (typeof settings !== "undefined") {
+        raw = settings.audio_placeholder;
+      }
+    } catch {
+      // ignore; fall back to the theme-settings service below
+    }
+
+    return (
+      normalizeThemeUploadUrl(raw) ||
+      normalizeThemeUploadUrl(this.themeSettings?.getSetting?.("audio_placeholder")) ||
+      normalizeThemeUploadUrl(this.themeSettings?.audio_placeholder)
+    );
   }
 
   constructor() {
