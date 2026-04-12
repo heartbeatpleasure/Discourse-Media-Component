@@ -55,6 +55,26 @@ function normalizePlainTextForSubmit(value, { maxLength = 200, allowNewlines = f
   return text;
 }
 
+function normalizePlainTextForTyping(value, { maxLength = 200, allowNewlines = false } = {}) {
+  let text = String(value || "");
+  text = text.replace(/<[^>]*>/g, "");
+  text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  if (allowNewlines) {
+    text = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+    text = text.replace(/\t/g, " ");
+    text = text.replace(/\n{3,}/g, "\n\n");
+  } else {
+    text = text.replace(/[\u0000-\u001F\u007F]/g, " ");
+    text = text.replace(/[\n\r\t]+/g, " ");
+  }
+
+  if (maxLength > 0 && text.length > maxLength) {
+    text = text.slice(0, maxLength);
+  }
+  return text;
+}
+
 function normalizeTagValue(value) {
   let text = normalizePlainTextForSubmit(value, {
     maxLength: MAX_TAG_LENGTH,
@@ -1088,8 +1108,8 @@ export default class MediaGalleryPage extends Component {
     // Filenames are often random hashes; users must provide a descriptive title.
   }
 
-  @action setUploadTitle(e) { this.uploadTitle = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_TITLE_LENGTH, allowNewlines: false }); }
-  @action setUploadDescription(e) { this.uploadDescription = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_DESCRIPTION_LENGTH, allowNewlines: true }); }
+  @action setUploadTitle(e) { this.uploadTitle = normalizePlainTextForTyping(e.target.value, { maxLength: MAX_TITLE_LENGTH, allowNewlines: false }); }
+  @action setUploadDescription(e) { this.uploadDescription = normalizePlainTextForTyping(e.target.value, { maxLength: MAX_DESCRIPTION_LENGTH, allowNewlines: true }); }
   @action setUploadGender(e) { this.uploadGender = e.target.value; }
   @action setUploadAuthorized(e) { this.uploadAuthorized = !!e.target.checked; }
 
@@ -1307,8 +1327,8 @@ export default class MediaGalleryPage extends Component {
     this.editTagsOpen = false;
   }
 
-  @action setEditTitle(e) { this.editTitle = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_TITLE_LENGTH, allowNewlines: false }); }
-  @action setEditDescription(e) { this.editDescription = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_DESCRIPTION_LENGTH, allowNewlines: true }); }
+  @action setEditTitle(e) { this.editTitle = normalizePlainTextForTyping(e.target.value, { maxLength: MAX_TITLE_LENGTH, allowNewlines: false }); }
+  @action setEditDescription(e) { this.editDescription = normalizePlainTextForTyping(e.target.value, { maxLength: MAX_DESCRIPTION_LENGTH, allowNewlines: true }); }
   @action setEditGender(e) { this.editGender = e.target.value; }
 
   @action
