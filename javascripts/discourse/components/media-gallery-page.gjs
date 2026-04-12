@@ -29,8 +29,43 @@ function stripExt(filename) {
   return filename?.replace(/\.[^/.]+$/, "") || filename;
 }
 
+const MAX_TITLE_LENGTH = 200;
+const MAX_DESCRIPTION_LENGTH = 4000;
+const MAX_TAG_LENGTH = 40;
+const MAX_SEARCH_LENGTH = 200;
+
+function normalizePlainTextForSubmit(value, { maxLength = 200, allowNewlines = false } = {}) {
+  let text = String(value || "");
+  text = text.replace(/<[^>]*>/g, "");
+  text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  if (allowNewlines) {
+    text = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+    text = text.replace(/[\t ]+/g, " ");
+    text = text.replace(/\n{3,}/g, "\n\n");
+  } else {
+    text = text.replace(/[\u0000-\u001F\u007F]/g, " ");
+    text = text.replace(/\s+/g, " ");
+  }
+
+  text = text.trim();
+  if (maxLength > 0 && text.length > maxLength) {
+    text = text.slice(0, maxLength);
+  }
+  return text;
+}
+
+function normalizeTagValue(value) {
+  let text = normalizePlainTextForSubmit(value, {
+    maxLength: MAX_TAG_LENGTH,
+    allowNewlines: false,
+  });
+  text = text.replace(/,/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return text;
+}
 
 function uniqStrings(arr) {
+
   const seen = new Set();
   const out = [];
   for (const v of arr || []) {
@@ -485,7 +520,7 @@ export default class MediaGalleryPage extends Component {
 
   get allowedTags() {
     const raw = this.siteSettings?.media_gallery_allowed_tags;
-    return normalizeListSetting(raw);
+    return uniqStrings(normalizeListSetting(raw).map((t) => normalizeTagValue(t)).filter(Boolean));
   }
 
   get uploadTermsUrl() {
@@ -495,7 +530,7 @@ export default class MediaGalleryPage extends Component {
   get uploadSubmitDisabled() {
     if (this.uploadBusy) return true;
     if (!this.uploadFile) return true;
-    if (!this.uploadTitle?.trim()) return true;
+    if (!normalizePlainTextForSubmit(this.uploadTitle, { maxLength: MAX_TITLE_LENGTH })) return true;
     if (!this.uploadGender) return true;
     if (!this.uploadAuthorized) return true;
     return false;
@@ -503,7 +538,7 @@ export default class MediaGalleryPage extends Component {
 
   get editSubmitDisabled() {
     if (this.editBusy) return true;
-    if (!this.editTitle?.trim()) return true;
+    if (!normalizePlainTextForSubmit(this.editTitle, { maxLength: MAX_TITLE_LENGTH })) return true;
     if (!this.editGender) return true;
     return false;
   }
@@ -947,7 +982,7 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   // Filters
   // -----------------------
-  @action setQ(e) { this.q = e.target.value; }
+  @action setQ(e) { this.q = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_SEARCH_LENGTH, allowNewlines: false }); }
   @action setMediaType(e) { this.mediaType = e.target.value; }
   @action setGender(e) { this.gender = e.target.value; }
   @action setStatus(e) { this.status = e.target.value; }
@@ -991,13 +1026,13 @@ export default class MediaGalleryPage extends Component {
 
   @action
   onFilterTagsQuery(e) {
-    this.filterTagsQuery = e.target.value;
+    this.filterTagsQuery = normalizeTagValue(e.target.value);
     this.filterTagsOpen = true;
   }
 
   @action
   addFilterTag(tag) {
-    const t = String(tag || "").trim();
+    const t = normalizeTagValue(tag);
     if (!t) return;
 
     this.tagsSelected = uniqStrings([...(this.tagsSelected || []), t]);
@@ -1022,7 +1057,7 @@ export default class MediaGalleryPage extends Component {
     if (e.key !== "Enter") return;
     e.preventDefault();
 
-    const candidate = (this.filterTagsQuery || "").trim();
+    const candidate = normalizeTagValue(this.filterTagsQuery || "");
     if (!candidate) return;
 
     if (this.allowedTags.length) {
@@ -1053,8 +1088,8 @@ export default class MediaGalleryPage extends Component {
     // Filenames are often random hashes; users must provide a descriptive title.
   }
 
-  @action setUploadTitle(e) { this.uploadTitle = e.target.value; }
-  @action setUploadDescription(e) { this.uploadDescription = e.target.value; }
+  @action setUploadTitle(e) { this.uploadTitle = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_TITLE_LENGTH, allowNewlines: false }); }
+  @action setUploadDescription(e) { this.uploadDescription = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_DESCRIPTION_LENGTH, allowNewlines: true }); }
   @action setUploadGender(e) { this.uploadGender = e.target.value; }
   @action setUploadAuthorized(e) { this.uploadAuthorized = !!e.target.checked; }
 
@@ -1100,13 +1135,13 @@ export default class MediaGalleryPage extends Component {
 
   @action
   onUploadTagsQuery(e) {
-    this.uploadTagsQuery = e.target.value;
+    this.uploadTagsQuery = normalizeTagValue(e.target.value);
     this.uploadTagsOpen = true;
   }
 
   @action
   addUploadTag(tag) {
-    const t = String(tag || "").trim();
+    const t = normalizeTagValue(tag);
     if (!t) return;
 
     this.uploadTagsSelected = uniqStrings([...(this.uploadTagsSelected || []), t]);
@@ -1131,7 +1166,7 @@ export default class MediaGalleryPage extends Component {
     if (e.key !== "Enter") return;
     e.preventDefault();
 
-    const candidate = (this.uploadTagsQuery || "").trim();
+    const candidate = normalizeTagValue(this.uploadTagsQuery || "");
     if (!candidate) return;
 
     if (this.allowedTags.length) {
@@ -1193,16 +1228,24 @@ export default class MediaGalleryPage extends Component {
         throw new Error(I18n.t("media_gallery.errors.upload_failed"));
       }
 
+      const safeTitle = normalizePlainTextForSubmit(this.uploadTitle, {
+        maxLength: MAX_TITLE_LENGTH,
+        allowNewlines: false,
+      });
+      const safeDescription = normalizePlainTextForSubmit(this.uploadDescription, {
+        maxLength: MAX_DESCRIPTION_LENGTH,
+        allowNewlines: true,
+      });
       const payload = {
         upload_id: uploadId,
-        title: this.uploadTitle.trim(),
+        title: safeTitle,
         gender: this.uploadGender,
         authorized: !!this.uploadAuthorized,
       };
 
-      if (this.uploadDescription?.trim()) payload.description = this.uploadDescription.trim();
+      if (safeDescription) payload.description = safeDescription;
 
-      const tags = uniqStrings(this.uploadTagsSelected || []);
+      const tags = uniqStrings((this.uploadTagsSelected || []).map((t) => normalizeTagValue(t)).filter(Boolean));
       if (tags.length) payload.tags = tags;
 
 
@@ -1264,8 +1307,8 @@ export default class MediaGalleryPage extends Component {
     this.editTagsOpen = false;
   }
 
-  @action setEditTitle(e) { this.editTitle = e.target.value; }
-  @action setEditDescription(e) { this.editDescription = e.target.value; }
+  @action setEditTitle(e) { this.editTitle = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_TITLE_LENGTH, allowNewlines: false }); }
+  @action setEditDescription(e) { this.editDescription = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_DESCRIPTION_LENGTH, allowNewlines: true }); }
   @action setEditGender(e) { this.editGender = e.target.value; }
 
   @action
@@ -1275,13 +1318,13 @@ export default class MediaGalleryPage extends Component {
 
   @action
   onEditTagsQuery(e) {
-    this.editTagsQuery = e.target.value;
+    this.editTagsQuery = normalizeTagValue(e.target.value);
     this.editTagsOpen = true;
   }
 
   @action
   addEditTag(tag) {
-    const t = String(tag || "").trim();
+    const t = normalizeTagValue(tag);
     if (!t) return;
 
     this.editTagsSelected = uniqStrings([...(this.editTagsSelected || []), t]);
@@ -1306,7 +1349,7 @@ export default class MediaGalleryPage extends Component {
     if (e.key !== "Enter") return;
     e.preventDefault();
 
-    const candidate = (this.editTagsQuery || "").trim();
+    const candidate = normalizeTagValue(this.editTagsQuery || "");
     if (!candidate) return;
 
     if (this.allowedTags.length) {
@@ -1332,10 +1375,10 @@ export default class MediaGalleryPage extends Component {
     this.editOpen = true;
     this.editItem = item;
     this.editBusy = false;
-    this.editTitle = item.title || "";
-    this.editDescription = item.description || "";
+    this.editTitle = normalizePlainTextForSubmit(item.title || "", { maxLength: MAX_TITLE_LENGTH, allowNewlines: false });
+    this.editDescription = normalizePlainTextForSubmit(item.description || "", { maxLength: MAX_DESCRIPTION_LENGTH, allowNewlines: true });
     this.editGender = normalizeGenderValue(item.gender || item.file_contains || item.fileContains || item.contains || "");
-    this.editTagsSelected = uniqStrings(item.tags || []);
+    this.editTagsSelected = uniqStrings((item.tags || []).map((t) => normalizeTagValue(t)).filter(Boolean));
     this.editTagsQuery = "";
     this.editTagsOpen = false;
   }
@@ -1375,10 +1418,17 @@ export default class MediaGalleryPage extends Component {
     this.noticeMessage = null;
 
     const payload = {
-      title: this.editTitle.trim(),
-      description: this.editDescription?.trim() || "",
+      title: normalizePlainTextForSubmit(this.editTitle, {
+        maxLength: MAX_TITLE_LENGTH,
+        allowNewlines: false,
+      }),
+      description:
+        normalizePlainTextForSubmit(this.editDescription, {
+          maxLength: MAX_DESCRIPTION_LENGTH,
+          allowNewlines: true,
+        }) || "",
       gender: this.editGender,
-      tags: uniqStrings(this.editTagsSelected || []),
+      tags: uniqStrings((this.editTagsSelected || []).map((t) => normalizeTagValue(t)).filter(Boolean)),
     };
 
     try {
@@ -2893,13 +2943,14 @@ toggleImageFullscreen(e) {
               type="text"
               value={{this.uploadTitle}}
               placeholder={{i18n "media_gallery.title_placeholder"}}
+              maxlength="200"
               {{on "input" this.setUploadTitle}}
             />
           </div>
 
           <div class="hb-field hb-field--span2">
             <label class="form-label">{{i18n "media_gallery.description_label"}}</label>
-            <textarea rows="5" value={{this.uploadDescription}} {{on "input" this.setUploadDescription}}></textarea>
+            <textarea rows="5" maxlength="4000" value={{this.uploadDescription}} {{on "input" this.setUploadDescription}}></textarea>
           </div>
 
           <div class="hb-field hb-field--span2">
@@ -2922,6 +2973,7 @@ toggleImageFullscreen(e) {
                     type="text"
                     placeholder={{i18n "media_gallery.tag_search_placeholder"}}
                     value={{this.uploadTagsQuery}}
+                    maxlength="40"
                     {{on "focus" this.openUploadTags}}
                     {{on "input" this.onUploadTagsQuery}}
                     {{on "keydown" this.onUploadTagsKeydown}}
@@ -3068,7 +3120,7 @@ toggleImageFullscreen(e) {
       <div class="hb-media-library-form-grid">
         <div class="hb-field hb-field--span2">
           <label class="form-label">{{i18n "media_gallery.search_placeholder"}}</label>
-          <input type="text" value={{this.q}} {{on "input" this.setQ}} />
+          <input type="text" maxlength="200" value={{this.q}} {{on "input" this.setQ}} />
         </div>
 
         <div class="hb-field">
@@ -3779,13 +3831,14 @@ toggleImageFullscreen(e) {
                   type="text"
                   value={{this.editTitle}}
                   placeholder={{i18n "media_gallery.title_placeholder"}}
+                  maxlength="200"
                   {{on "input" this.setEditTitle}}
                 />
               </div>
 
               <div class="hb-field hb-field--span2">
                 <label class="form-label">{{i18n "media_gallery.description_label"}}</label>
-                <textarea rows="5" value={{this.editDescription}} {{on "input" this.setEditDescription}}></textarea>
+                <textarea rows="5" maxlength="4000" value={{this.editDescription}} {{on "input" this.setEditDescription}}></textarea>
               </div>
 
               <div class="hb-field hb-field--span2">
@@ -3808,6 +3861,7 @@ toggleImageFullscreen(e) {
                         type="text"
                         placeholder={{i18n "media_gallery.tag_search_placeholder"}}
                         value={{this.editTagsQuery}}
+                        maxlength="40"
                         {{on "focus" this.openEditTags}}
                         {{on "input" this.onEditTagsQuery}}
                         {{on "keydown" this.onEditTagsKeydown}}
