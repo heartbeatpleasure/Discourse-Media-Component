@@ -350,6 +350,8 @@ export default class MediaGalleryPage extends Component {
   @tracked previewMuted = false;
   @tracked previewIsFullscreen = false;
   @tracked previewPseudoFullscreen = false;
+  @tracked previewOverlay = null;
+  @tracked previewOverlayPositionIndex = 0;
 
   // Delete confirmation modal
   @tracked deleteOpen = false;
@@ -382,6 +384,7 @@ export default class MediaGalleryPage extends Component {
   _previewSecurity = null;
   _previewHeartbeatTimer = null;
   _previewRevokePromise = null;
+  _previewOverlayTimer = null;
 
   _previewHls = null;
   _previewSourceAttached = false;
@@ -519,6 +522,8 @@ export default class MediaGalleryPage extends Component {
       document.removeEventListener("webkitfullscreenchange", this._boundFullscreenChange);
       this._boundFullscreenChange = null;
     }
+
+    this._stopPreviewOverlayRotation();
   }
 
   get isMine() {
@@ -1717,6 +1722,34 @@ get previewPlayerStyle() {
     return !!(this.previewIsFullscreen || this.previewPseudoFullscreen);
   }
 
+  get previewOverlayVisible() {
+    return !!(this.previewOverlay?.enabled && this.previewOverlay?.text && (this.previewMediaType === "video" || this.previewMediaType === "image"));
+  }
+
+  get previewOverlayText() {
+    return this.previewOverlay?.text || "";
+  }
+
+  get previewOverlayStyle() {
+    const opacity = Number(this.previewOverlay?.opacity_percent);
+    const fontSize = Number(this.previewOverlay?.font_size_px);
+    let style = "";
+    if (Number.isFinite(opacity) && opacity > 0) {
+      style += ` --hb-playback-overlay-opacity: ${Math.max(0.1, Math.min(1, opacity / 100))};`;
+    }
+    if (Number.isFinite(fontSize) && fontSize > 0) {
+      style += ` --hb-playback-overlay-font-size: ${Math.max(10, Math.min(28, fontSize))}px;`;
+    }
+    return htmlSafe(style);
+  }
+
+  get previewOverlayPositionClass() {
+    const positions = Array.isArray(this.previewOverlay?.positions) ? this.previewOverlay.positions : [];
+    if (!positions.length) return "is-top-left";
+    const idx = Math.max(0, Math.min(positions.length - 1, Number(this.previewOverlayPositionIndex) || 0));
+    return `is-${positions[idx] || "top_left"}`.replace(/_/g, "-");
+  }
+
 
   _pickPlayerIcon(cacheKey, candidates, fallback) {
     const key = cacheKey || (candidates || []).join("|") || fallback || "";
@@ -2584,7 +2617,15 @@ toggleImageFullscreen(e) {
 
     if (resetRetry) this.previewRetryCount = 0;
 
-    const qs = forceStream ? "?force_stream=1" : "";
+    const query = new URLSearchParams();
+    if (forceStream) {
+      query.set("force_stream", "1");
+    }
+    const reuseCode = this.previewOverlay?.overlay_code;
+    if (reuseCode) {
+      query.set("overlay_code_reuse", reuseCode);
+    }
+    const qs = query.toString() ? `?${query.toString()}` : "";
     const res = await ajax(`/media/${publicId}/play${qs}`, { type: "GET" });
 
     // If the preview was closed/switched while awaiting the request, ignore the response.
@@ -2599,8 +2640,59 @@ toggleImageFullscreen(e) {
     this._previewSecurity = res?.security || null;
     this._previewStreamToken = res?.token || this._extractTokenFromStreamUrl(playbackUrl);
     this._previewIsHls = !!hlsUrl;
+    this._applyPreviewOverlay(res?.overlay || null);
 
     return playbackUrl;
+  }
+
+  _applyPreviewOverlay(overlay) {
+    if (!overlay?.enabled || !overlay?.text) {
+      this._stopPreviewOverlayRotation();
+      this.previewOverlay = null;
+      this.previewOverlayPositionIndex = 0;
+      return;
+    }
+
+    this.previewOverlay = overlay;
+
+    const positions = Array.isArray(overlay.positions) ? overlay.positions : [];
+    if (positions.length > 0) {
+      const code = String(overlay.overlay_code || overlay.text || "");
+      let seed = 0;
+      for (let i = 0; i < code.length; i++) {
+        seed = (seed + code.charCodeAt(i)) % 2147483647;
+      }
+      this.previewOverlayPositionIndex = seed % positions.length;
+    } else {
+      this.previewOverlayPositionIndex = 0;
+    }
+
+    this._startPreviewOverlayRotation();
+  }
+
+  _startPreviewOverlayRotation() {
+    this._stopPreviewOverlayRotation();
+    if (!this.previewOverlayVisible) return;
+
+    const positions = Array.isArray(this.previewOverlay?.positions) ? this.previewOverlay.positions : [];
+    const intervalSec = Number(this.previewOverlay?.move_interval_seconds);
+    if (positions.length < 2 || !Number.isFinite(intervalSec) || intervalSec <= 0) {
+      return;
+    }
+
+    this._previewOverlayTimer = setInterval(() => {
+      if (!this.previewOpen) return;
+      const currentPositions = Array.isArray(this.previewOverlay?.positions) ? this.previewOverlay.positions : [];
+      if (currentPositions.length < 2) return;
+      this.previewOverlayPositionIndex = (Number(this.previewOverlayPositionIndex) + 1) % currentPositions.length;
+    }, intervalSec * 1000);
+  }
+
+  _stopPreviewOverlayRotation() {
+    if (this._previewOverlayTimer) {
+      clearInterval(this._previewOverlayTimer);
+      this._previewOverlayTimer = null;
+    }
   }
 
   @action
@@ -2647,6 +2739,9 @@ toggleImageFullscreen(e) {
     this.previewMuted = false;
     this.previewIsFullscreen = false;
     this.previewPseudoFullscreen = false;
+    this.previewOverlay = null;
+    this.previewOverlayPositionIndex = 0;
+    this._stopPreviewOverlayRotation();
 
     this._previewMediaEl = null;
     this._previewPlayerEl = null;
@@ -2751,6 +2846,9 @@ toggleImageFullscreen(e) {
 
     this._previewMediaEl = null;
     this._previewPlayerEl = null;
+    this.previewOverlay = null;
+    this.previewOverlayPositionIndex = 0;
+    this._stopPreviewOverlayRotation();
 
     if (this._previewMeasureRaf) {
       cancelAnimationFrame(this._previewMeasureRaf);
@@ -3482,6 +3580,12 @@ toggleImageFullscreen(e) {
                       <div class="hb-media-preview__imageWrap">
                         <img alt="" src={{this.previewStreamUrl}} {{on "load" this.onPreviewImageLoad}} {{on "dblclick" this.toggleImageFullscreen}} />
 
+                        {{#if this.previewOverlayVisible}}
+                          <div class={{concat "hb-media-playback-overlay " this.previewOverlayPositionClass}} style={{this.previewOverlayStyle}} aria-hidden="true">
+                            {{this.previewOverlayText}}
+                          </div>
+                        {{/if}}
+
                         <button
                           class="hb-media-preview__imgFsBtn"
                           type="button"
@@ -3545,6 +3649,12 @@ toggleImageFullscreen(e) {
                           {{on "volumechange" this.onPreviewVolumeChange}}
                           {{on "error" this.onPlayerError}}
                         ></video>
+
+                        {{#if this.previewOverlayVisible}}
+                          <div class={{concat "hb-media-playback-overlay " this.previewOverlayPositionClass}} style={{this.previewOverlayStyle}} aria-hidden="true">
+                            {{this.previewOverlayText}}
+                          </div>
+                        {{/if}}
 
                         <div
                           class="hb-media-player__overlay"
