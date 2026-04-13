@@ -1730,24 +1730,67 @@ get previewPlayerStyle() {
     return this.previewOverlay?.text || "";
   }
 
+  get previewOverlayPositionEntry() {
+    const positions = Array.isArray(this.previewOverlay?.positions) ? this.previewOverlay.positions : [];
+    if (!positions.length) {
+      return { key: "top_left", offset_y_px: 0 };
+    }
+
+    const idx = Math.max(0, Math.min(positions.length - 1, Number(this.previewOverlayPositionIndex) || 0));
+    const entry = positions[idx];
+
+    if (typeof entry === "string") {
+      return { key: entry || "top_left", offset_y_px: 0 };
+    }
+
+    if (entry && typeof entry === "object") {
+      return {
+        key: String(entry.key || entry.position || "top_left"),
+        offset_y_px: Number(entry.offset_y_px) || 0,
+      };
+    }
+
+    return { key: "top_left", offset_y_px: 0 };
+  }
+
   get previewOverlayStyle() {
     const opacity = Number(this.previewOverlay?.opacity_percent);
     const fontSize = Number(this.previewOverlay?.font_size_px);
+    const backgroundEnabled = this.previewOverlay?.background_enabled !== false;
+    const backgroundOpacity = Number(this.previewOverlay?.background_opacity_percent);
+    const offsetY = Number(this.previewOverlayPositionEntry?.offset_y_px);
     let style = "";
+
     if (Number.isFinite(opacity) && opacity > 0) {
       style += ` --hb-playback-overlay-opacity: ${Math.max(0.1, Math.min(1, opacity / 100))};`;
     }
     if (Number.isFinite(fontSize) && fontSize > 0) {
       style += ` --hb-playback-overlay-font-size: ${Math.max(10, Math.min(28, fontSize))}px;`;
     }
+
+    if (backgroundEnabled) {
+      const normalizedBackgroundOpacity = Number.isFinite(backgroundOpacity)
+        ? Math.max(0, Math.min(1, backgroundOpacity / 100))
+        : 0.45;
+      style += ` --hb-playback-overlay-bg-opacity: ${normalizedBackgroundOpacity};`;
+      style += ` --hb-playback-overlay-border-opacity: ${normalizedBackgroundOpacity > 0 ? 0.08 : 0};`;
+      style += ` --hb-playback-overlay-backdrop-blur: ${normalizedBackgroundOpacity > 0 ? 2 : 0}px;`;
+    } else {
+      style += " --hb-playback-overlay-bg-opacity: 0;";
+      style += " --hb-playback-overlay-border-opacity: 0;";
+      style += " --hb-playback-overlay-backdrop-blur: 0px;";
+    }
+
+    if (Number.isFinite(offsetY) && offsetY !== 0) {
+      style += ` --hb-playback-overlay-offset-y: ${offsetY}px;`;
+    }
+
     return htmlSafe(style);
   }
 
   get previewOverlayPositionClass() {
-    const positions = Array.isArray(this.previewOverlay?.positions) ? this.previewOverlay.positions : [];
-    if (!positions.length) return "is-top-left";
-    const idx = Math.max(0, Math.min(positions.length - 1, Number(this.previewOverlayPositionIndex) || 0));
-    return `is-${positions[idx] || "top_left"}`.replace(/_/g, "-");
+    const key = String(this.previewOverlayPositionEntry?.key || "top_left");
+    return `is-${key}`.replace(/_/g, "-");
   }
 
 
