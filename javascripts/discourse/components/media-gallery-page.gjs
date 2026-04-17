@@ -280,6 +280,153 @@ function normalizeThemeUploadUrl(value) {
   return String(value || "");
 }
 
+const BYTES_PER_MB = 1024 * 1024;
+
+function normalizeExtension(value) {
+  return String(value || "").trim().toLowerCase().replace(/^\./, "");
+}
+
+function fileExtension(file) {
+  const name = String(file?.name || "");
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? normalizeExtension(name.slice(dot + 1)) : "";
+}
+
+function inferUploadMediaTypeFromFile(file, policy = null) {
+  const mime = String(file?.type || "").toLowerCase();
+  const ext = fileExtension(file);
+  const allowed = policy?.allowed_extensions || {};
+
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  if (mime.startsWith("video/")) return "video";
+
+  if ((allowed.image || []).includes(ext) || /^(jpg|jpeg|png|webp|gif|bmp|tif|tiff|avif)$/i.test(ext)) return "image";
+  if ((allowed.audio || []).includes(ext) || /^(mp3|m4a|aac|wav|ogg|flac|opus)$/i.test(ext)) return "audio";
+  if ((allowed.video || []).includes(ext) || /^(mp4|m4v|webm|mkv)$/i.test(ext)) return "video";
+
+  return null;
+}
+
+function formatMb(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatBytesAsMb(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  return formatMb(n / BYTES_PER_MB);
+}
+
+function pluralizeLabel(value, one, many) {
+  const n = Number(value || 0);
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function formatDurationLabel(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds || 0)));
+  if (total < 60) return pluralizeLabel(total, "second", "seconds");
+
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  if (remainder === 0) {
+    return pluralizeLabel(minutes, "minute", "minutes");
+  }
+
+  return `${pluralizeLabel(minutes, "minute", "minutes")} ${pluralizeLabel(remainder, "second", "seconds")}`;
+}
+
+function mediaTypeLabel(mediaType) {
+  switch (String(mediaType || "")) {
+    case "video":
+      return "video";
+    case "audio":
+      return "audio file";
+    case "image":
+      return "image";
+    default:
+      return "file";
+  }
+}
+
+function buildUnsupportedFileTypeMessage(file, policy = null) {
+  const ext = fileExtension(file);
+  const allowed = policy?.allowed_extensions || {};
+  const image = (allowed.image || []).join(", ") || "jpg, jpeg, png, webp";
+  const audio = (allowed.audio || []).join(", ") || "mp3, m4a, ogg, wav";
+  const video = (allowed.video || []).join(", ") || "mp4, webm, mkv";
+  const suffix = ext ? ` (.${ext})` : "";
+  return `This file type${suffix} is not supported. Allowed extensions: images (${image}), audio (${audio}), video (${video}).`;
+}
+
+function buildUnsupportedExtensionMessage(file, mediaType, allowedExtensions) {
+  const ext = fileExtension(file) || "unknown";
+  const allowed = (allowedExtensions || []).join(", ") || "none configured";
+  return `Files with the .${ext} extension are not allowed for ${mediaType} uploads. Allowed extensions: ${allowed}.`;
+}
+
+function buildSiteUploadTooLargeMessage(file, maxMb) {
+  return `This file is too large to upload (${formatBytesAsMb(file?.size)} MB). The site upload limit is ${formatMb(maxMb)} MB.`;
+}
+
+function buildPluginUploadTooLargeMessage(file, maxMb) {
+  return `This file is too large (${formatBytesAsMb(file?.size)} MB). The maximum allowed size is ${formatMb(maxMb)} MB.`;
+}
+
+function buildTypeUploadTooLargeMessage(file, mediaType, maxMb) {
+  return `This ${mediaTypeLabel(mediaType)} is too large (${formatBytesAsMb(file?.size)} MB). The maximum allowed ${mediaType} size is ${formatMb(maxMb)} MB.`;
+}
+
+function buildDurationTooLongMessage(mediaType, actualSeconds, maxSeconds) {
+  return `This ${mediaTypeLabel(mediaType)} is too long (${formatDurationLabel(actualSeconds)}). The maximum allowed ${mediaType} duration is ${formatDurationLabel(maxSeconds)}.`;
+}
+
+function probeLocalMediaDuration(file, mediaType) {
+  return new Promise((resolve) => {
+    try {
+      if (!file || !["video", "audio"].includes(String(mediaType || ""))) {
+        resolve(null);
+        return;
+      }
+
+      const url = URL.createObjectURL(file);
+      const el = document.createElement(mediaType === "audio" ? "audio" : "video");
+      let settled = false;
+
+      const cleanup = () => {
+        try {
+          el.removeAttribute("src");
+          el.load?.();
+        } catch {
+          // ignore
+        }
+
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          // ignore
+        }
+      };
+
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(Number.isFinite(value) && value > 0 ? value : null);
+      };
+
+      el.preload = "metadata";
+      el.onloadedmetadata = () => finish(Number(el.duration));
+      el.onerror = () => finish(null);
+      el.src = url;
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 export default class MediaGalleryPage extends Component {
   @service currentUser;
   @service siteSettings;
@@ -321,6 +468,7 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadGender = "";
   @tracked uploadAuthorized = false;
   @tracked watermarkConfig = null;
+  @tracked uploadPolicy = null;
   @tracked uploadWatermarkEnabled = true;
   @tracked uploadWatermarkPresetId = "";
 
@@ -481,6 +629,7 @@ export default class MediaGalleryPage extends Component {
     try {
       const res = await ajax("/media/config");
       this.watermarkConfig = res?.watermark || null;
+      this.uploadPolicy = res?.upload_policy || null;
 
       // Defaults for the upload UI
       if (this.watermarkConfig?.enabled) {
@@ -493,6 +642,7 @@ export default class MediaGalleryPage extends Component {
       }
     } catch (e) {
       this.watermarkConfig = null;
+      this.uploadPolicy = null;
     }
   }
 
@@ -618,6 +768,130 @@ export default class MediaGalleryPage extends Component {
 
   get watermarkCanToggle() {
     return !!(this.watermarkConfig?.enabled && this.watermarkConfig.user_can_toggle);
+  }
+
+  get uploadPolicyAllowedExtensions() {
+    return this.uploadPolicy?.allowed_extensions || {};
+  }
+
+  inferUploadMediaType(file = this.uploadFile) {
+    return inferUploadMediaTypeFromFile(file, this.uploadPolicy);
+  }
+
+  async validateUploadFileBeforeSend() {
+    const file = this.uploadFile;
+    if (!file) return null;
+
+    const mediaType = this.inferUploadMediaType(file);
+    if (!mediaType) {
+      return buildUnsupportedFileTypeMessage(file, this.uploadPolicy);
+    }
+
+    const ext = fileExtension(file);
+    const allowedExtensions = this.uploadPolicyAllowedExtensions?.[mediaType] || [];
+    if (ext && allowedExtensions.length && !allowedExtensions.includes(ext)) {
+      return buildUnsupportedExtensionMessage(file, mediaType, allowedExtensions);
+    }
+
+    const sizeBytes = Number(file.size || 0);
+    const candidates = [];
+
+    const siteMaxMb = Number(this.uploadPolicy?.site_max_upload_mb || 0);
+    if (siteMaxMb > 0) {
+      candidates.push({ scope: "site", maxMb: siteMaxMb });
+    }
+
+    const pluginMaxMb = Number(this.uploadPolicy?.plugin_max_upload_mb || 0);
+    if (pluginMaxMb > 0) {
+      candidates.push({ scope: "plugin", maxMb: pluginMaxMb });
+    }
+
+    const typeMaxMb = Number(this.uploadPolicy?.type_max_upload_mb?.[mediaType] || 0);
+    if (typeMaxMb > 0) {
+      candidates.push({ scope: mediaType, maxMb: typeMaxMb });
+    }
+
+    if (candidates.length) {
+      const limiting = candidates.sort((a, b) => a.maxMb - b.maxMb)[0];
+      if (sizeBytes > limiting.maxMb * BYTES_PER_MB) {
+        if (limiting.scope === "site") {
+          return buildSiteUploadTooLargeMessage(file, limiting.maxMb);
+        }
+        if (limiting.scope === "plugin") {
+          return buildPluginUploadTooLargeMessage(file, limiting.maxMb);
+        }
+        return buildTypeUploadTooLargeMessage(file, mediaType, limiting.maxMb);
+      }
+    }
+
+    const maxDurationSeconds = Number(this.uploadPolicy?.duration_limits_seconds?.[mediaType] || 0);
+    if (maxDurationSeconds > 0 && ["video", "audio"].includes(mediaType)) {
+      const actualDurationSeconds = await probeLocalMediaDuration(file, mediaType);
+      if (Number.isFinite(actualDurationSeconds) && actualDurationSeconds > maxDurationSeconds) {
+        return buildDurationTooLongMessage(mediaType, actualDurationSeconds, maxDurationSeconds);
+      }
+    }
+
+    return null;
+  }
+
+  friendlyUploadErrorMessage(error) {
+    const response = error?.jqXHR?.responseJSON || {};
+    const status = Number(error?.jqXHR?.status || 0);
+    const errorCode = String(response?.error_code || "").trim();
+    const details = response?.details || {};
+    const rawErrors = Array.isArray(response?.errors) ? response.errors.filter(Boolean) : [];
+    const joinedErrors = rawErrors.join(", " ).trim();
+    const validationDetails = Array.isArray(details?.details) ? details.details.filter(Boolean) : [];
+
+    if (status === 413) {
+      const siteMaxMb = Number(this.uploadPolicy?.site_max_upload_mb || 0);
+      return siteMaxMb > 0
+        ? buildSiteUploadTooLargeMessage(this.uploadFile, siteMaxMb)
+        : "This file is too large to upload. The request was rejected before it could be processed.";
+    }
+
+    if (joinedErrors && (!errorCode || joinedErrors !== errorCode)) {
+      return joinedErrors;
+    }
+
+    switch (errorCode) {
+      case "title_required":
+        return I18n.t("media_gallery.errors.missing_title");
+      case "gender_required":
+        return I18n.t("media_gallery.errors.missing_gender");
+      case "authorization_required":
+        return this.uploadTermsUrl
+          ? I18n.t("media_gallery.errors.missing_authorization_with_terms")
+          : I18n.t("media_gallery.errors.missing_authorization");
+      case "upload_not_found":
+        return "The uploaded file could not be found anymore. Please upload it again.";
+      case "upload_not_owned":
+        return "You can only register your own uploads.";
+      case "invalid_upload_id":
+        return "The upload reference is invalid. Please upload the file again.";
+      case "unsupported_file_type":
+        return joinedErrors || buildUnsupportedFileTypeMessage(this.uploadFile, this.uploadPolicy);
+      case "unsupported_file_extension":
+        return joinedErrors || buildUnsupportedExtensionMessage(this.uploadFile, details?.media_type, details?.allowed_extensions);
+      case "upload_too_large":
+        return joinedErrors || buildPluginUploadTooLargeMessage(this.uploadFile, details?.max_mb || this.uploadPolicy?.plugin_max_upload_mb || 0);
+      case "video_too_large":
+      case "audio_too_large":
+      case "image_too_large":
+        return joinedErrors || buildTypeUploadTooLargeMessage(this.uploadFile, details?.media_type || errorCode.replace(/_too_large$/, ""), details?.max_mb || this.uploadPolicy?.type_max_upload_mb?.[details?.media_type]);
+      case "video_too_long":
+      case "audio_too_long":
+        return joinedErrors || buildDurationTooLongMessage(details?.media_type || errorCode.replace(/_too_long$/, ""), details?.actual_seconds, details?.max_seconds);
+      case "validation_error":
+        return validationDetails.length ? validationDetails.join(", ") : joinedErrors || "The media item could not be saved. Please check the form and try again.";
+      case "private_storage_unavailable":
+        return joinedErrors || "Private storage is currently unavailable. Please try again later.";
+      case "internal_error":
+        return "Something went wrong while creating the media item. Please try again.";
+      default:
+        return joinedErrors || error?.message || I18n.t("media_gallery.errors.create_failed");
+    }
   }
 
   get watermarkCanChoosePreset() {
@@ -1233,6 +1507,12 @@ export default class MediaGalleryPage extends Component {
       return;
     }
 
+    const preflightError = await this.validateUploadFileBeforeSend();
+    if (preflightError) {
+      this.errorMessage = preflightError;
+      return;
+    }
+
     this.uploadBusy = true;
 
     try {
@@ -1307,10 +1587,7 @@ export default class MediaGalleryPage extends Component {
       if (status === 404 || status === 403) {
         this.errorMessage = I18n.t("media_gallery.errors.upload_not_allowed");
       } else {
-        this.errorMessage =
-          e?.jqXHR?.responseJSON?.errors?.join(", ") ||
-          e?.message ||
-          I18n.t("media_gallery.errors.create_failed");
+        this.errorMessage = this.friendlyUploadErrorMessage(e);
       }
     } finally {
       this.uploadBusy = false;
