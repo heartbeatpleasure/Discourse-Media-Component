@@ -116,6 +116,8 @@ const MAX_SEARCH_LENGTH = 200;
 const MAX_LIBRARY_NOTICE_TITLE_LENGTH = 160;
 const MAX_LIBRARY_NOTICE_BODY_LENGTH = 600;
 const MAX_LIBRARY_NOTICE_LINK_TEXT_LENGTH = 80;
+const MAX_ACCESS_MESSAGE_TITLE_LENGTH = 160;
+const MAX_ACCESS_MESSAGE_BODY_LENGTH = 700;
 
 const DEFAULT_SORT_BY = "newest";
 const SORT_VALUES = ["newest", "oldest", "title_asc", "title_desc", "most_liked", "most_viewed"];
@@ -128,6 +130,25 @@ const DEFAULT_LIBRARY_NOTICE_TITLE = "Use this media library responsibly.";
 const DEFAULT_LIBRARY_NOTICE_BODY =
   "Please review and follow the {guidelines_link}. Content may include visible or invisible watermarking.";
 const DEFAULT_LIBRARY_NOTICE_LINK_TEXT = "media guidelines";
+
+const DEFAULT_VIEW_RESTRICTED_TITLE = "Media access is limited.";
+const DEFAULT_VIEW_RESTRICTED_MESSAGE =
+  "You can open this page, but media items are currently available only to: {groups}. Please contact staff if you need access.";
+const DEFAULT_VIEW_RESTRICTED_NO_GROUPS_MESSAGE =
+  "You can open this page, but media items are not available for your account. Please contact staff if you need access.";
+
+const DEFAULT_UPLOAD_RESTRICTED_TITLE = "Upload access is limited.";
+const DEFAULT_UPLOAD_RESTRICTED_MESSAGE =
+  "Uploading to the media library is currently available only to: {groups}. Please contact staff if you need upload access.";
+const DEFAULT_UPLOAD_RESTRICTED_NO_GROUPS_MESSAGE =
+  "Uploading to the media library is not available for your account. Please contact staff if you need upload access.";
+
+const DEFAULT_BLOCKED_VIEW_TITLE = "Media access has been restricted.";
+const DEFAULT_BLOCKED_VIEW_MESSAGE =
+  "Your access to the media library has been restricted by staff. Please contact staff if you have questions or think this is a mistake.";
+const DEFAULT_BLOCKED_UPLOAD_TITLE = "Upload access has been restricted.";
+const DEFAULT_BLOCKED_UPLOAD_MESSAGE =
+  "Your access to upload to the media library has been restricted by staff. Please contact staff if you have questions or think this is a mistake.";
 
 function normalizePlainTextForSubmit(value, { maxLength = 200, allowNewlines = false } = {}) {
   let text = String(value || "");
@@ -256,6 +277,19 @@ function accessGroupsLabel(groups) {
   const list = normalizePermissionGroups(groups).map(displayAccessGroupName);
   if (!list.length) return "all logged-in users";
   return list.join(", ");
+}
+
+function siteSettingText(settings, key, fallback, { maxLength = MAX_ACCESS_MESSAGE_BODY_LENGTH } = {}) {
+  const raw = settings?.[key];
+  const text = normalizeNoticeText(raw == null ? fallback : raw, { maxLength });
+  return text || fallback;
+}
+
+function accessMessage(settings, key, fallback, groupsLabel) {
+  const template = siteSettingText(settings, key, fallback, {
+    maxLength: MAX_ACCESS_MESSAGE_BODY_LENGTH,
+  });
+  return template.replace(/\{groups\}/g, groupsLabel);
 }
 
 function isProcessingStatus(status) {
@@ -905,35 +939,83 @@ export default class MediaGalleryPage extends Component {
   }
 
   get viewAccessHeading() {
-    return this.accessBlockedByStaff ? "Media access has been restricted." : "Media access is limited.";
+    const key = this.accessBlockedByStaff
+      ? "media_gallery_blocked_view_title"
+      : "media_gallery_view_restricted_title";
+    const fallback = this.accessBlockedByStaff
+      ? DEFAULT_BLOCKED_VIEW_TITLE
+      : DEFAULT_VIEW_RESTRICTED_TITLE;
+
+    return siteSettingText(this.siteSettings, key, fallback, {
+      maxLength: MAX_ACCESS_MESSAGE_TITLE_LENGTH,
+    });
   }
 
   get uploadAccessHeading() {
-    return this.accessBlockedByStaff ? "Upload access has been restricted." : "Upload access is limited.";
+    const key = this.accessBlockedByStaff
+      ? "media_gallery_blocked_upload_title"
+      : "media_gallery_upload_restricted_title";
+    const fallback = this.accessBlockedByStaff
+      ? DEFAULT_BLOCKED_UPLOAD_TITLE
+      : DEFAULT_UPLOAD_RESTRICTED_TITLE;
+
+    return siteSettingText(this.siteSettings, key, fallback, {
+      maxLength: MAX_ACCESS_MESSAGE_TITLE_LENGTH,
+    });
   }
 
   get viewAccessMessage() {
     if (this.accessBlockedByStaff) {
-      return "Your access to the media library has been restricted by staff. Please contact staff if you have questions or think this is a mistake.";
+      return siteSettingText(
+        this.siteSettings,
+        "media_gallery_blocked_view_message",
+        DEFAULT_BLOCKED_VIEW_MESSAGE,
+        { maxLength: MAX_ACCESS_MESSAGE_BODY_LENGTH }
+      );
     }
 
     if ((this.permissions?.viewer_groups || []).length) {
-      return `You can open this page, but media items are currently available only to: ${this.viewerGroupsLabel}. Please contact staff if you need access.`;
+      return accessMessage(
+        this.siteSettings,
+        "media_gallery_view_restricted_message",
+        DEFAULT_VIEW_RESTRICTED_MESSAGE,
+        this.viewerGroupsLabel
+      );
     }
 
-    return "You can open this page, but media items are not available for your account. Please contact staff if you need access.";
+    return siteSettingText(
+      this.siteSettings,
+      "media_gallery_view_restricted_no_groups_message",
+      DEFAULT_VIEW_RESTRICTED_NO_GROUPS_MESSAGE,
+      { maxLength: MAX_ACCESS_MESSAGE_BODY_LENGTH }
+    );
   }
 
   get uploadAccessMessage() {
     if (this.accessBlockedByStaff) {
-      return "Your access to upload to the media library has been restricted by staff. Please contact staff if you have questions or think this is a mistake.";
+      return siteSettingText(
+        this.siteSettings,
+        "media_gallery_blocked_upload_message",
+        DEFAULT_BLOCKED_UPLOAD_MESSAGE,
+        { maxLength: MAX_ACCESS_MESSAGE_BODY_LENGTH }
+      );
     }
 
     if ((this.permissions?.uploader_groups || []).length) {
-      return `Uploading to the media library is currently available only to: ${this.uploaderGroupsLabel}. Please contact staff if you need upload access.`;
+      return accessMessage(
+        this.siteSettings,
+        "media_gallery_upload_restricted_message",
+        DEFAULT_UPLOAD_RESTRICTED_MESSAGE,
+        this.uploaderGroupsLabel
+      );
     }
 
-    return "Uploading to the media library is not available for your account. Please contact staff if you need upload access.";
+    return siteSettingText(
+      this.siteSettings,
+      "media_gallery_upload_restricted_no_groups_message",
+      DEFAULT_UPLOAD_RESTRICTED_NO_GROUPS_MESSAGE,
+      { maxLength: MAX_ACCESS_MESSAGE_BODY_LENGTH }
+    );
   }
 
   get uploadButtonTitle() {
@@ -970,6 +1052,22 @@ export default class MediaGalleryPage extends Component {
       this.tagsSelected?.length ||
       this.normalizedSortBy !== DEFAULT_SORT_BY
     );
+  }
+
+  get emptyResultsMessage() {
+    if (this.isMine && this.hasActiveFilters) {
+      return I18n.t("media_gallery.no_results_mine_filtered");
+    }
+
+    if (this.isMine) {
+      return I18n.t("media_gallery.no_results_mine");
+    }
+
+    if (this.hasActiveFilters) {
+      return I18n.t("media_gallery.no_results_filtered");
+    }
+
+    return I18n.t("media_gallery.no_results");
   }
 
   restoreStateFromUrl() {
@@ -4058,23 +4156,23 @@ toggleImageFullscreen(e) {
         <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.type_label"}}</label>
           <select {{on "change" this.setMediaType}} value={{this.mediaType}}>
-            <option value="">Do not consider</option>
-            <option value="image">image</option>
-            <option value="video">video</option>
-            <option value="audio">audio</option>
+            <option value="" selected={{eq this.mediaType ""}}>Do not consider</option>
+            <option value="image" selected={{eq this.mediaType "image"}}>image</option>
+            <option value="video" selected={{eq this.mediaType "video"}}>video</option>
+            <option value="audio" selected={{eq this.mediaType "audio"}}>audio</option>
           </select>
         </div>
 
         <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.gender_label"}}</label>
           <select {{on "change" this.setGender}} value={{this.gender}}>
-            <option value="">Do not consider</option>
-            <option value="male">{{i18n "media_gallery.genders.male"}}</option>
-            <option value="female">{{i18n "media_gallery.genders.female"}}</option>
-            <option value="both">{{i18n "media_gallery.genders.both"}}</option>
-            <option value="non_binary">{{i18n "media_gallery.genders.non_binary"}}</option>
-            <option value="objects">{{i18n "media_gallery.genders.objects"}}</option>
-            <option value="other">{{i18n "media_gallery.genders.other"}}</option>
+            <option value="" selected={{eq this.gender ""}}>Do not consider</option>
+            <option value="male" selected={{eq this.gender "male"}}>{{i18n "media_gallery.genders.male"}}</option>
+            <option value="female" selected={{eq this.gender "female"}}>{{i18n "media_gallery.genders.female"}}</option>
+            <option value="both" selected={{eq this.gender "both"}}>{{i18n "media_gallery.genders.both"}}</option>
+            <option value="non_binary" selected={{eq this.gender "non_binary"}}>{{i18n "media_gallery.genders.non_binary"}}</option>
+            <option value="objects" selected={{eq this.gender "objects"}}>{{i18n "media_gallery.genders.objects"}}</option>
+            <option value="other" selected={{eq this.gender "other"}}>{{i18n "media_gallery.genders.other"}}</option>
           </select>
         </div>
 
@@ -4129,11 +4227,11 @@ toggleImageFullscreen(e) {
           <div class="hb-field">
             <label class="form-label">{{i18n "media_gallery.status_label"}}</label>
             <select {{on "change" this.setStatus}} value={{this.status}}>
-              <option value="">Do not consider</option>
-              <option value="queued">{{i18n "media_gallery.status_queued"}}</option>
-              <option value="processing">{{i18n "media_gallery.status_processing"}}</option>
-              <option value="ready">{{i18n "media_gallery.status_ready"}}</option>
-              <option value="failed">{{i18n "media_gallery.status_failed"}}</option>
+              <option value="" selected={{eq this.status ""}}>Do not consider</option>
+              <option value="queued" selected={{eq this.status "queued"}}>{{i18n "media_gallery.status_queued"}}</option>
+              <option value="processing" selected={{eq this.status "processing"}}>{{i18n "media_gallery.status_processing"}}</option>
+              <option value="ready" selected={{eq this.status "ready"}}>{{i18n "media_gallery.status_ready"}}</option>
+              <option value="failed" selected={{eq this.status "failed"}}>{{i18n "media_gallery.status_failed"}}</option>
             </select>
           </div>
         {{/if}}
@@ -4141,21 +4239,21 @@ toggleImageFullscreen(e) {
         <div class="hb-field">
           <label class="form-label">Sort by</label>
           <select {{on "change" this.setSortBy}} value={{this.sortBy}}>
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-            <option value="title_asc">Title A-Z</option>
-            <option value="title_desc">Title Z-A</option>
-            <option value="most_liked">Most liked</option>
-            <option value="most_viewed">Most viewed</option>
+            <option value="newest" selected={{eq this.normalizedSortBy "newest"}}>Newest first</option>
+            <option value="oldest" selected={{eq this.normalizedSortBy "oldest"}}>Oldest first</option>
+            <option value="title_asc" selected={{eq this.normalizedSortBy "title_asc"}}>Title A-Z</option>
+            <option value="title_desc" selected={{eq this.normalizedSortBy "title_desc"}}>Title Z-A</option>
+            <option value="most_liked" selected={{eq this.normalizedSortBy "most_liked"}}>Most liked</option>
+            <option value="most_viewed" selected={{eq this.normalizedSortBy "most_viewed"}}>Most viewed</option>
           </select>
         </div>
 
         <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.per_page_label"}}</label>
           <select {{on "change" this.setPerPage}} value={{this.perPage}}>
-            <option value="20">20</option>
-            <option value="30">30</option>
-            <option value="40">40</option>
+            <option value="20" selected={{eq this.perPage 20}}>20</option>
+            <option value="30" selected={{eq this.perPage 30}}>30</option>
+            <option value="40" selected={{eq this.perPage 40}}>40</option>
           </select>
         </div>
       </div>
@@ -4370,7 +4468,7 @@ toggleImageFullscreen(e) {
           <button class="btn btn-default" type="button" disabled={{not this.hasNext}} {{on "click" this.goNext}}>›</button>
         </div>
       {{else}}
-        <p>{{i18n "media_gallery.no_results"}}</p>
+        <p class="hb-media-library-empty-state">{{this.emptyResultsMessage}}</p>
       {{/if}}
     {{/if}}
     {{/if}}
