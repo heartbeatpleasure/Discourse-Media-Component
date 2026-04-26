@@ -84,6 +84,15 @@ function normalizeTagValue(value) {
   return text;
 }
 
+function searchTerms(value) {
+  const text = normalizePlainTextForSubmit(value, {
+    maxLength: MAX_SEARCH_LENGTH,
+    allowNewlines: false,
+  }).toLowerCase();
+
+  return text.split(/\s+/g).filter(Boolean);
+}
+
 function uniqStrings(arr) {
 
   const seen = new Set();
@@ -1191,13 +1200,15 @@ export default class MediaGalleryPage extends Component {
       out = out.filter((m) => this._itemHasAllTags(m, selectedTagsLower));
     }
 
-    // Text query is intentionally client-side only (current page)
-    if (this.q?.trim()) {
-      const q = this.q.trim().toLowerCase();
+    // Text query is intentionally client-side only (current page).
+    // Multiple words are treated as AND terms across title + description.
+    // Example: "red dress" matches items that contain both "red" and "dress",
+    // even if one term is in the title and the other is in the description.
+    const terms = searchTerms(this.q);
+    if (terms.length) {
       out = out.filter((m) => {
-        const t = (m.title || "").toLowerCase();
-        const d = (m.description || "").toLowerCase();
-        return t.includes(q) || d.includes(q);
+        const haystack = `${m.title || ""} ${m.description || ""}`.toLowerCase();
+        return terms.every((term) => haystack.includes(term));
       });
     }
 
@@ -1281,7 +1292,7 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   // Filters
   // -----------------------
-  @action setQ(e) { this.q = normalizePlainTextForSubmit(e.target.value, { maxLength: MAX_SEARCH_LENGTH, allowNewlines: false }); }
+  @action setQ(e) { this.q = normalizePlainTextForTyping(e.target.value, { maxLength: MAX_SEARCH_LENGTH, allowNewlines: false }); }
   @action setMediaType(e) { this.mediaType = e.target.value; }
   @action setGender(e) { this.gender = e.target.value; }
   @action setStatus(e) { this.status = e.target.value; }
