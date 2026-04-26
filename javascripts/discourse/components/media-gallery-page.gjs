@@ -108,6 +108,34 @@ function uniqStrings(arr) {
   return out;
 }
 
+function normalizePermissionGroups(groups) {
+  return uniqStrings((groups || []).map((g) => String(g || "").trim()).filter(Boolean));
+}
+
+function normalizePermissionsPayload(raw) {
+  if (!raw || typeof raw !== "object") return null;
+
+  return {
+    can_view: raw.can_view !== false,
+    can_upload: raw.can_upload !== false,
+    viewer_groups: normalizePermissionGroups(raw.viewer_groups),
+    uploader_groups: normalizePermissionGroups(raw.uploader_groups),
+  };
+}
+
+function displayAccessGroupName(group) {
+  const s = String(group || "").trim();
+  const trustLevel = s.match(/^trust_level_(\d+)$/i);
+  if (trustLevel) return `trust level ${trustLevel[1]}`;
+  return s;
+}
+
+function accessGroupsLabel(groups) {
+  const list = normalizePermissionGroups(groups).map(displayAccessGroupName);
+  if (!list.length) return "all logged-in users";
+  return list.join(", ");
+}
+
 function isProcessingStatus(status) {
   return status === "queued" || status === "processing";
 }
@@ -478,6 +506,8 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadAuthorized = false;
   @tracked watermarkConfig = null;
   @tracked uploadPolicy = null;
+  @tracked permissions = null;
+  @tracked mediaConfigLoaded = false;
   @tracked uploadWatermarkEnabled = true;
   @tracked uploadWatermarkPresetId = "";
 
@@ -630,8 +660,23 @@ export default class MediaGalleryPage extends Component {
     document.addEventListener("fullscreenchange", this._boundFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this._boundFullscreenChange);
 
-    this.refresh();
-    this.loadMediaConfig();
+    this.initializeMediaGallery();
+  }
+
+  async initializeMediaGallery() {
+    this.loading = true;
+
+    await this.loadMediaConfig();
+
+    if (this.viewAccessDenied) {
+      this.errorMessage = null;
+      this.items = [];
+      this.total = 0;
+      this.loading = false;
+      return;
+    }
+
+    await this.refresh();
   }
 
   async loadMediaConfig() {
@@ -639,6 +684,7 @@ export default class MediaGalleryPage extends Component {
       const res = await ajax("/media/config");
       this.watermarkConfig = res?.watermark || null;
       this.uploadPolicy = res?.upload_policy || null;
+      this.permissions = normalizePermissionsPayload(res?.permissions);
 
       // Defaults for the upload UI
       if (this.watermarkConfig?.enabled) {
@@ -650,8 +696,22 @@ export default class MediaGalleryPage extends Component {
           (typeof dc === "string" ? dc : dc?.value) || this.watermarkConfig?.default_preset_id || "";
       }
     } catch (e) {
+      const status = Number(e?.jqXHR?.status || 0);
       this.watermarkConfig = null;
       this.uploadPolicy = null;
+
+      if (status === 403 || status === 404) {
+        this.permissions = {
+          can_view: false,
+          can_upload: false,
+          viewer_groups: [],
+          uploader_groups: [],
+        };
+      } else {
+        this.permissions = null;
+      }
+    } finally {
+      this.mediaConfigLoaded = true;
     }
   }
 
@@ -689,6 +749,52 @@ export default class MediaGalleryPage extends Component {
     return this.activeTab === "mine";
   }
 
+  get canViewMedia() {
+    if (!this.mediaConfigLoaded) return false;
+    return this.permissions?.can_view !== false;
+  }
+
+  get canUploadMedia() {
+    if (!this.mediaConfigLoaded) return false;
+    return this.permissions?.can_upload !== false;
+  }
+
+  get viewAccessDenied() {
+    return this.mediaConfigLoaded && this.permissions?.can_view === false;
+  }
+
+  get uploadAccessDenied() {
+    return this.mediaConfigLoaded && this.permissions?.can_upload === false;
+  }
+
+  get viewerGroupsLabel() {
+    return accessGroupsLabel(this.permissions?.viewer_groups || []);
+  }
+
+  get uploaderGroupsLabel() {
+    return accessGroupsLabel(this.permissions?.uploader_groups || []);
+  }
+
+  get viewAccessMessage() {
+    if ((this.permissions?.viewer_groups || []).length) {
+      return `You can open this page, but media is only visible to ${this.viewerGroupsLabel}.`;
+    }
+
+    return "You can open this page, but this media library is not available for your account.";
+  }
+
+  get uploadAccessMessage() {
+    if ((this.permissions?.uploader_groups || []).length) {
+      return `Uploading is limited to ${this.uploaderGroupsLabel}; staff can also upload.`;
+    }
+
+    return "Uploading is not available for your account.";
+  }
+
+  get uploadButtonTitle() {
+    return this.uploadAccessDenied ? this.uploadAccessMessage : "";
+  }
+
   get totalPages() {
     const pp = this.perPage || 1;
     return Math.max(1, Math.ceil((this.total || 0) / pp));
@@ -712,6 +818,7 @@ export default class MediaGalleryPage extends Component {
   }
 
   get uploadSubmitDisabled() {
+    if (!this.canUploadMedia) return true;
     if (this.uploadBusy) return true;
     if (!this.uploadFile) return true;
     if (!normalizePlainTextForSubmit(this.uploadTitle, { maxLength: MAX_TITLE_LENGTH })) return true;
@@ -1384,6 +1491,13 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   @action
   toggleUpload() {
+    if (!this.canUploadMedia) {
+      this.showUpload = false;
+      this.noticeMessage = this.uploadAccessMessage;
+      this.errorMessage = null;
+      return;
+    }
+
     this.showUpload = !this.showUpload;
   }
 
@@ -1496,6 +1610,11 @@ export default class MediaGalleryPage extends Component {
     this.noticeMessage = null;
     this.errorMessage = null;
 
+    if (!this.canUploadMedia) {
+      this.errorMessage = this.uploadAccessMessage;
+      return;
+    }
+
     if (!this.uploadFile) {
       this.errorMessage = I18n.t("media_gallery.errors.missing_file");
       return;
@@ -1588,11 +1707,16 @@ export default class MediaGalleryPage extends Component {
       this.noticeMessage = I18n.t("media_gallery.uploading_notice");
       this.resetUploadForm();
 
-      this.activeTab = "mine";
-      this.page = 1;
-      await this.refresh();
+      if (this.canViewMedia) {
+        this.activeTab = "mine";
+        this.page = 1;
+        await this.refresh();
 
-      this.schedulePollingIfNeeded();
+        this.schedulePollingIfNeeded();
+      } else {
+        this.showUpload = false;
+        this.noticeMessage = `${I18n.t("media_gallery.uploading_notice")} You do not have permission to view the gallery, so the uploaded media will not be shown here.`;
+      }
     } catch (e) {
       const status = e?.jqXHR?.status;
       if (status === 404 || status === 403) {
@@ -3262,6 +3386,15 @@ toggleImageFullscreen(e) {
       this.loading = true;
     }
     this.errorMessage = null;
+
+    if (this.viewAccessDenied) {
+      this.items = [];
+      this.total = 0;
+      if (!silent) {
+        this.loading = false;
+      }
+      return;
+    }
     // Notice messages (e.g. upload/delete/retry) are cleared explicitly by user
     // actions (Search/Reset/Tab/Paging) so silent polling doesn't wipe them.
 
@@ -3319,26 +3452,34 @@ toggleImageFullscreen(e) {
     <div class="hb-media-library-header">
       <h1>{{i18n "media_gallery.title"}}</h1>
 
-      <div class="hb-media-library-tabs">
-        <button
-          class={{concat "btn " (if (eq this.activeTab "all") "btn-primary" "btn-default")}}
-          type="button"
-          {{on "click" (fn this.switchTab "all")}}
-        >
-          {{i18n "media_gallery.all"}}
-        </button>
+      {{#if this.canViewMedia}}
+        <div class="hb-media-library-tabs">
+          <button
+            class={{concat "btn " (if (eq this.activeTab "all") "btn-primary" "btn-default")}}
+            type="button"
+            {{on "click" (fn this.switchTab "all")}}
+          >
+            {{i18n "media_gallery.all"}}
+          </button>
 
-        <button
-          class={{concat "btn " (if (eq this.activeTab "mine") "btn-primary" "btn-default")}}
-          type="button"
-          {{on "click" (fn this.switchTab "mine")}}
-        >
-          {{i18n "media_gallery.mine"}}
-        </button>
-      </div>
+          <button
+            class={{concat "btn " (if (eq this.activeTab "mine") "btn-primary" "btn-default")}}
+            type="button"
+            {{on "click" (fn this.switchTab "mine")}}
+          >
+            {{i18n "media_gallery.mine"}}
+          </button>
+        </div>
+      {{/if}}
 
       <div>
-        <button class="btn btn-primary" type="button" {{on "click" this.toggleUpload}}>
+        <button
+          class="btn btn-primary"
+          type="button"
+          disabled={{not this.canUploadMedia}}
+          title={{this.uploadButtonTitle}}
+          {{on "click" this.toggleUpload}}
+        >
           {{#if this.showUpload}}
             {{i18n "media_gallery.close"}}
           {{else}}
@@ -3356,7 +3497,21 @@ toggleImageFullscreen(e) {
       <div class="alert alert-error">{{this.errorMessage}}</div>
     {{/if}}
 
-    {{#if this.showUpload}}
+    {{#if this.viewAccessDenied}}
+      <div class="alert alert-info hb-media-library-access-message">
+        <strong>Media access is restricted.</strong>
+        <div>{{this.viewAccessMessage}}</div>
+      </div>
+    {{/if}}
+
+    {{#if this.uploadAccessDenied}}
+      <div class="alert alert-info hb-media-library-access-message">
+        <strong>Upload access is restricted.</strong>
+        <div>{{this.uploadAccessMessage}}</div>
+      </div>
+    {{/if}}
+
+    {{#if (and this.showUpload this.canUploadMedia)}}
       <div class="hb-media-library-panel">
         <div class="hb-media-library-panel-title">Upload</div>
 
@@ -3563,6 +3718,7 @@ toggleImageFullscreen(e) {
       </div>
     {{/if}}
 
+    {{#if this.canViewMedia}}
     <div class="hb-media-library-panel">
       <div class="hb-media-library-panel-title">Filters</div>
 
@@ -3877,6 +4033,7 @@ toggleImageFullscreen(e) {
       {{else}}
         <p>{{i18n "media_gallery.no_results"}}</p>
       {{/if}}
+    {{/if}}
     {{/if}}
 
     {{!-- Preview modal --}}
