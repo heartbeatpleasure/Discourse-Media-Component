@@ -118,6 +118,7 @@ function normalizePermissionsPayload(raw) {
   return {
     can_view: raw.can_view !== false,
     can_upload: raw.can_upload !== false,
+    access_blocked: raw.access_blocked === true,
     viewer_groups: normalizePermissionGroups(raw.viewer_groups),
     uploader_groups: normalizePermissionGroups(raw.uploader_groups),
   };
@@ -704,6 +705,7 @@ export default class MediaGalleryPage extends Component {
         this.permissions = {
           can_view: false,
           can_upload: false,
+          access_blocked: false,
           viewer_groups: [],
           uploader_groups: [],
         };
@@ -775,20 +777,40 @@ export default class MediaGalleryPage extends Component {
     return accessGroupsLabel(this.permissions?.uploader_groups || []);
   }
 
+  get accessBlockedByStaff() {
+    return this.permissions?.access_blocked === true;
+  }
+
+  get viewAccessHeading() {
+    return this.accessBlockedByStaff ? "Media access has been restricted." : "Media access is limited.";
+  }
+
+  get uploadAccessHeading() {
+    return this.accessBlockedByStaff ? "Upload access has been restricted." : "Upload access is limited.";
+  }
+
   get viewAccessMessage() {
-    if ((this.permissions?.viewer_groups || []).length) {
-      return `You can open this page, but media is only visible to ${this.viewerGroupsLabel}.`;
+    if (this.accessBlockedByStaff) {
+      return "Your access to the media library has been restricted by staff. Please contact staff if you have questions or think this is a mistake.";
     }
 
-    return "You can open this page, but this media library is not available for your account.";
+    if ((this.permissions?.viewer_groups || []).length) {
+      return `You can open this page, but media items are currently available only to: ${this.viewerGroupsLabel}.`;
+    }
+
+    return "You can open this page, but media items are not available for your account.";
   }
 
   get uploadAccessMessage() {
-    if ((this.permissions?.uploader_groups || []).length) {
-      return `Uploading is limited to ${this.uploaderGroupsLabel}; staff can also upload.`;
+    if (this.accessBlockedByStaff) {
+      return "Your access to upload to the media library has been restricted by staff. Please contact staff if you have questions or think this is a mistake.";
     }
 
-    return "Uploading is not available for your account.";
+    if ((this.permissions?.uploader_groups || []).length) {
+      return `Uploading to the media library is currently available only to: ${this.uploaderGroupsLabel}.`;
+    }
+
+    return "Uploading to the media library is not available for your account.";
   }
 
   get uploadButtonTitle() {
@@ -3499,14 +3521,14 @@ toggleImageFullscreen(e) {
 
     {{#if this.viewAccessDenied}}
       <div class="alert alert-info hb-media-library-access-message">
-        <strong>Media access is restricted.</strong>
+        <strong>{{this.viewAccessHeading}}</strong>
         <div>{{this.viewAccessMessage}}</div>
       </div>
     {{/if}}
 
     {{#if this.uploadAccessDenied}}
       <div class="alert alert-info hb-media-library-access-message">
-        <strong>Upload access is restricted.</strong>
+        <strong>{{this.uploadAccessHeading}}</strong>
         <div>{{this.uploadAccessMessage}}</div>
       </div>
     {{/if}}
