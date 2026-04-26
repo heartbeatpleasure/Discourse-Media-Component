@@ -25,6 +25,86 @@ function normalizeListSetting(raw) {
     .filter(Boolean);
 }
 
+function normalizeSafeLinkUrl(raw) {
+  const str = String(raw || "").trim();
+  if (!str) return null;
+
+  // Site settings are admin-controlled, but still only render normal http(s)
+  // links or same-site paths. Reject javascript:, data:, protocol-relative URLs,
+  // and control characters before binding to href.
+  if (/[\u0000-\u001F\u007F]/.test(str)) return null;
+  if (str.startsWith("/") && !str.startsWith("//")) return str;
+
+  try {
+    const base = typeof window !== "undefined" ? window.location.origin : "https://example.invalid";
+    const url = new URL(str, base);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.href;
+    }
+  } catch {
+    // ignore invalid URLs
+  }
+
+  return null;
+}
+
+function normalizeNoticeText(raw, { maxLength = 600 } = {}) {
+  let text = String(raw || "");
+  text = text.replace(/<[^>]*>/g, "");
+  text = text.replace(/[\u0000-\u001F\u007F]/g, " ");
+  text = text.replace(/\s+/g, " ").trim();
+
+  if (maxLength > 0 && text.length > maxLength) {
+    text = text.slice(0, maxLength).trim();
+  }
+
+  return text;
+}
+
+function settingEnabled(value, defaultValue = true) {
+  if (value == null) return defaultValue;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["false", "0", "off", "no"].includes(normalized)) return false;
+    if (["true", "1", "on", "yes"].includes(normalized)) return true;
+  }
+  return value !== false;
+}
+
+function noticeBodyParts(body, linkText) {
+  const text = normalizeNoticeText(body, { maxLength: MAX_LIBRARY_NOTICE_BODY_LENGTH });
+  const safeLinkText = normalizeNoticeText(linkText, { maxLength: MAX_LIBRARY_NOTICE_LINK_TEXT_LENGTH }) || DEFAULT_LIBRARY_NOTICE_LINK_TEXT;
+
+  if (!text) {
+    return { before: "", after: "", linkText: safeLinkText, inline: false };
+  }
+
+  const placeholder = "{guidelines_link}";
+  const placeholderIndex = text.indexOf(placeholder);
+  if (placeholderIndex >= 0) {
+    return {
+      before: text.slice(0, placeholderIndex),
+      after: text.slice(placeholderIndex + placeholder.length),
+      linkText: safeLinkText,
+      inline: true,
+    };
+  }
+
+  const lowerText = text.toLowerCase();
+  const lowerLinkText = safeLinkText.toLowerCase();
+  const linkTextIndex = lowerText.indexOf(lowerLinkText);
+  if (linkTextIndex >= 0) {
+    return {
+      before: text.slice(0, linkTextIndex),
+      after: text.slice(linkTextIndex + safeLinkText.length),
+      linkText: text.slice(linkTextIndex, linkTextIndex + safeLinkText.length),
+      inline: true,
+    };
+  }
+
+  return { before: text, after: "", linkText: safeLinkText, inline: false };
+}
+
 function stripExt(filename) {
   return filename?.replace(/\.[^/.]+$/, "") || filename;
 }
@@ -33,6 +113,14 @@ const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 4000;
 const MAX_TAG_LENGTH = 40;
 const MAX_SEARCH_LENGTH = 200;
+const MAX_LIBRARY_NOTICE_TITLE_LENGTH = 160;
+const MAX_LIBRARY_NOTICE_BODY_LENGTH = 600;
+const MAX_LIBRARY_NOTICE_LINK_TEXT_LENGTH = 80;
+
+const DEFAULT_LIBRARY_NOTICE_TITLE = "Use this media library responsibly.";
+const DEFAULT_LIBRARY_NOTICE_BODY =
+  "Please review and follow the {guidelines_link}. Content may include visible or invisible watermarking.";
+const DEFAULT_LIBRARY_NOTICE_LINK_TEXT = "media guidelines";
 
 function normalizePlainTextForSubmit(value, { maxLength = 200, allowNewlines = false } = {}) {
   let text = String(value || "");
@@ -795,10 +883,10 @@ export default class MediaGalleryPage extends Component {
     }
 
     if ((this.permissions?.viewer_groups || []).length) {
-      return `You can open this page, but media items are currently available only to: ${this.viewerGroupsLabel}.`;
+      return `You can open this page, but media items are currently available only to: ${this.viewerGroupsLabel}. Please contact staff if you need access.`;
     }
 
-    return "You can open this page, but media items are not available for your account.";
+    return "You can open this page, but media items are not available for your account. Please contact staff if you need access.";
   }
 
   get uploadAccessMessage() {
@@ -807,10 +895,10 @@ export default class MediaGalleryPage extends Component {
     }
 
     if ((this.permissions?.uploader_groups || []).length) {
-      return `Uploading to the media library is currently available only to: ${this.uploaderGroupsLabel}.`;
+      return `Uploading to the media library is currently available only to: ${this.uploaderGroupsLabel}. Please contact staff if you need upload access.`;
     }
 
-    return "Uploading to the media library is not available for your account.";
+    return "Uploading to the media library is not available for your account. Please contact staff if you need upload access.";
   }
 
   get uploadButtonTitle() {
@@ -836,7 +924,50 @@ export default class MediaGalleryPage extends Component {
   }
 
   get uploadTermsUrl() {
-    return String(this.siteSettings?.media_gallery_upload_terms_url || "").trim() || null;
+    return normalizeSafeLinkUrl(this.siteSettings?.media_gallery_upload_terms_url);
+  }
+
+  get mediaLibraryNoticeEnabled() {
+    return settingEnabled(this.siteSettings?.media_gallery_library_notice_enabled, true);
+  }
+
+  get mediaLibraryNoticeTitle() {
+    const raw = this.siteSettings?.media_gallery_library_notice_title;
+    return normalizeNoticeText(raw == null ? DEFAULT_LIBRARY_NOTICE_TITLE : raw, {
+      maxLength: MAX_LIBRARY_NOTICE_TITLE_LENGTH,
+    });
+  }
+
+  get mediaLibraryNoticeBody() {
+    const raw = this.siteSettings?.media_gallery_library_notice_body;
+    return normalizeNoticeText(raw == null ? DEFAULT_LIBRARY_NOTICE_BODY : raw, {
+      maxLength: MAX_LIBRARY_NOTICE_BODY_LENGTH,
+    });
+  }
+
+  get mediaLibraryNoticeLinkText() {
+    const raw = this.siteSettings?.media_gallery_library_notice_link_text;
+    return (
+      normalizeNoticeText(raw == null ? DEFAULT_LIBRARY_NOTICE_LINK_TEXT : raw, {
+        maxLength: MAX_LIBRARY_NOTICE_LINK_TEXT_LENGTH,
+      }) || DEFAULT_LIBRARY_NOTICE_LINK_TEXT
+    );
+  }
+
+  get mediaLibraryNoticeBodyParts() {
+    return noticeBodyParts(this.mediaLibraryNoticeBody, this.mediaLibraryNoticeLinkText);
+  }
+
+  get mediaLibraryNoticeFallbackLinkText() {
+    return `Read the ${this.mediaLibraryNoticeLinkText}.`;
+  }
+
+  get showMediaLibraryNotice() {
+    if (!this.canViewMedia) return false;
+    if (!this.mediaLibraryNoticeEnabled) return false;
+    if (!this.uploadTermsUrl) return false;
+
+    return !!this.mediaLibraryNoticeTitle || !!this.mediaLibraryNoticeBody;
   }
 
   get uploadSubmitDisabled() {
@@ -3517,6 +3648,35 @@ toggleImageFullscreen(e) {
 
     {{#if this.errorMessage}}
       <div class="alert alert-error">{{this.errorMessage}}</div>
+    {{/if}}
+
+    {{#if this.showMediaLibraryNotice}}
+      <div class="alert alert-info hb-media-library-guidelines-notice">
+        {{#if this.mediaLibraryNoticeTitle}}
+          <strong>{{this.mediaLibraryNoticeTitle}}</strong>
+        {{/if}}
+
+        {{#if this.mediaLibraryNoticeBody}}
+          <div>
+            {{this.mediaLibraryNoticeBodyParts.before}}
+            {{#if this.mediaLibraryNoticeBodyParts.inline}}
+              <a
+                class="hb-media-library-guidelines-link"
+                href={{this.uploadTermsUrl}}
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{this.mediaLibraryNoticeBodyParts.linkText}}</a>{{this.mediaLibraryNoticeBodyParts.after}}
+            {{else}}
+              <a
+                class="hb-media-library-guidelines-link"
+                href={{this.uploadTermsUrl}}
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{this.mediaLibraryNoticeFallbackLinkText}}</a>
+            {{/if}}
+          </div>
+        {{/if}}
+      </div>
     {{/if}}
 
     {{#if this.viewAccessDenied}}
