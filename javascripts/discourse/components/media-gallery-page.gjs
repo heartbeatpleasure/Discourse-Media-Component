@@ -673,6 +673,11 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadTagsQuery = "";
   @tracked uploadTagsOpen = false;
 
+  // Duplicate upload confirmation
+  @tracked duplicateUploadMessage = null;
+  @tracked duplicateUploadDetails = null;
+  @tracked pendingDuplicateUploadPayload = null;
+
   // Preview modal
   @tracked previewOpen = false;
   @tracked previewItem = null;
@@ -1940,6 +1945,7 @@ export default class MediaGalleryPage extends Component {
     this._uploadFileInputEl = e.target;
     const file = e.target.files?.[0];
     this.uploadFile = file || null;
+    this.clearDuplicateUploadWarning();
     // Intentionally do NOT auto-fill the title with the filename.
     // Filenames are often random hashes; users must provide a descriptive title.
   }
@@ -1959,6 +1965,7 @@ export default class MediaGalleryPage extends Component {
     this.uploadTagsSelected = [];
     this.uploadTagsQuery = "";
     this.uploadTagsOpen = false;
+    this.clearDuplicateUploadWarning();
 
     if (this.watermarkConfig?.enabled) {
       this.uploadWatermarkEnabled = true;
@@ -2037,10 +2044,131 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
   // Upload flow
   // -----------------------
+  clearDuplicateUploadWarning() {
+    this.duplicateUploadMessage = null;
+    this.duplicateUploadDetails = null;
+    this.pendingDuplicateUploadPayload = null;
+  }
+
+  buildUploadRegistrationPayload(uploadId, extra = {}) {
+    const safeTitle = normalizePlainTextForSubmit(this.uploadTitle, {
+      maxLength: MAX_TITLE_LENGTH,
+      allowNewlines: false,
+    });
+    const safeDescription = normalizePlainTextForSubmit(this.uploadDescription, {
+      maxLength: MAX_DESCRIPTION_LENGTH,
+      allowNewlines: true,
+    });
+
+    const payload = {
+      upload_id: uploadId,
+      title: safeTitle,
+      gender: this.uploadGender,
+      authorized: !!this.uploadAuthorized,
+      ...extra,
+    };
+
+    if (safeDescription) payload.description = safeDescription;
+
+    const tags = uniqStrings((this.uploadTagsSelected || []).map((t) => normalizeTagValue(t)).filter(Boolean));
+    if (tags.length) payload.tags = tags;
+
+    // Watermark payload (video/images only, and only if enabled server-side)
+    if (this.watermarkConfig?.enabled && this.isWatermarkableUploadSelected) {
+      const watermarkEnabled = this.watermarkCanToggle ? !!this.uploadWatermarkEnabled : true;
+
+      if (this.watermarkCanToggle) {
+        payload.watermark_enabled = watermarkEnabled;
+      }
+
+      if (this.watermarkCanChoosePreset && watermarkEnabled) {
+        const choice = String(this.uploadWatermarkPresetId || "").trim();
+        if (choice) {
+          // Newer plugin versions accept `watermark_choice`; older ones expect `watermark_preset_id`.
+          payload.watermark_choice = choice;
+          payload.watermark_preset_id = choice;
+        }
+      }
+    }
+
+    return payload;
+  }
+
+  async registerMediaUpload(payload) {
+    return ajax("/media", { type: "POST", data: payload });
+  }
+
+  async completeSuccessfulUploadRegistration() {
+    this.clearDuplicateUploadWarning();
+    this.noticeMessage = I18n.t("media_gallery.uploading_notice");
+    this.resetUploadForm();
+
+    if (this.canViewMedia) {
+      this.activeTab = "mine";
+      this.page = 1;
+      await this.refresh();
+
+      this.schedulePollingIfNeeded();
+    } else {
+      this.showUpload = false;
+      this.noticeMessage = `${I18n.t("media_gallery.uploading_notice")} You do not have permission to view the gallery, so the uploaded media will not be shown here.`;
+    }
+  }
+
+  maybePrepareDuplicateUploadConfirmation(error, payload) {
+    const response = error?.jqXHR?.responseJSON || {};
+    const errorCode = String(response?.error_code || "").trim();
+    if (!["duplicate_upload_warning", "duplicate_upload_blocked"].includes(errorCode)) {
+      return false;
+    }
+
+    const duplicate = response?.duplicate || {};
+    const overrideAllowed = duplicate?.override_allowed === true;
+    this.duplicateUploadMessage = this.friendlyUploadErrorMessage(error);
+    this.duplicateUploadDetails = duplicate;
+
+    if (overrideAllowed) {
+      this.pendingDuplicateUploadPayload = {
+        ...payload,
+        duplicate_override: true,
+      };
+    } else {
+      this.pendingDuplicateUploadPayload = null;
+    }
+
+    return true;
+  }
+
+  @action
+  cancelDuplicateUpload() {
+    this.clearDuplicateUploadWarning();
+  }
+
+  @action
+  async confirmDuplicateUpload() {
+    if (!this.pendingDuplicateUploadPayload || this.uploadBusy) {
+      return;
+    }
+
+    this.uploadBusy = true;
+    this.errorMessage = null;
+    this.noticeMessage = null;
+
+    try {
+      await this.registerMediaUpload(this.pendingDuplicateUploadPayload);
+      await this.completeSuccessfulUploadRegistration();
+    } catch (e) {
+      this.errorMessage = this.friendlyUploadErrorMessage(e);
+    } finally {
+      this.uploadBusy = false;
+    }
+  }
+
   @action
   async submitUpload() {
     this.noticeMessage = null;
     this.errorMessage = null;
+    this.clearDuplicateUploadWarning();
 
     if (!this.canUploadMedia) {
       this.errorMessage = this.uploadAccessMessage;
@@ -2095,60 +2223,19 @@ export default class MediaGalleryPage extends Component {
         throw new Error(I18n.t("media_gallery.errors.upload_failed"));
       }
 
-      const safeTitle = normalizePlainTextForSubmit(this.uploadTitle, {
-        maxLength: MAX_TITLE_LENGTH,
-        allowNewlines: false,
-      });
-      const safeDescription = normalizePlainTextForSubmit(this.uploadDescription, {
-        maxLength: MAX_DESCRIPTION_LENGTH,
-        allowNewlines: true,
-      });
-      const payload = {
-        upload_id: uploadId,
-        title: safeTitle,
-        gender: this.uploadGender,
-        authorized: !!this.uploadAuthorized,
-      };
+      const payload = this.buildUploadRegistrationPayload(uploadId);
 
-      if (safeDescription) payload.description = safeDescription;
-
-      const tags = uniqStrings((this.uploadTagsSelected || []).map((t) => normalizeTagValue(t)).filter(Boolean));
-      if (tags.length) payload.tags = tags;
-
-
-      // Watermark payload (video/images only, and only if enabled server-side)
-      if (this.watermarkConfig?.enabled && this.isWatermarkableUploadSelected) {
-        const watermarkEnabled = this.watermarkCanToggle ? !!this.uploadWatermarkEnabled : true;
-
-        if (this.watermarkCanToggle) {
-          payload.watermark_enabled = watermarkEnabled;
+      try {
+        await this.registerMediaUpload(payload);
+      } catch (registrationError) {
+        if (this.maybePrepareDuplicateUploadConfirmation(registrationError, payload)) {
+          return;
         }
 
-        if (this.watermarkCanChoosePreset && watermarkEnabled) {
-          const choice = String(this.uploadWatermarkPresetId || "").trim();
-          if (choice) {
-            // Newer plugin versions accept `watermark_choice`; older ones expect `watermark_preset_id`.
-            payload.watermark_choice = choice;
-            payload.watermark_preset_id = choice;
-          }
-        }
+        throw registrationError;
       }
 
-      await ajax("/media", { type: "POST", data: payload });
-
-      this.noticeMessage = I18n.t("media_gallery.uploading_notice");
-      this.resetUploadForm();
-
-      if (this.canViewMedia) {
-        this.activeTab = "mine";
-        this.page = 1;
-        await this.refresh();
-
-        this.schedulePollingIfNeeded();
-      } else {
-        this.showUpload = false;
-        this.noticeMessage = `${I18n.t("media_gallery.uploading_notice")} You do not have permission to view the gallery, so the uploaded media will not be shown here.`;
-      }
+      await this.completeSuccessfulUploadRegistration();
     } catch (e) {
       const status = e?.jqXHR?.status;
       if (status === 404 || status === 403) {
@@ -3930,6 +4017,23 @@ toggleImageFullscreen(e) {
 
     {{#if this.errorMessage}}
       <div class="alert alert-error">{{this.errorMessage}}</div>
+    {{/if}}
+
+    {{#if this.duplicateUploadMessage}}
+      <div class="alert alert-info hb-media-library-duplicate-warning">
+        <strong>Possible duplicate file</strong>
+        <div>{{this.duplicateUploadMessage}}</div>
+        {{#if this.pendingDuplicateUploadPayload}}
+          <div class="hb-media-library-actions-row" style="margin-top: 0.75rem;">
+            <button class="btn btn-primary" type="button" disabled={{this.uploadBusy}} {{on "click" this.confirmDuplicateUpload}}>
+              Upload anyway
+            </button>
+            <button class="btn btn-default" type="button" disabled={{this.uploadBusy}} {{on "click" this.cancelDuplicateUpload}}>
+              Cancel
+            </button>
+          </div>
+        {{/if}}
+      </div>
     {{/if}}
 
     {{#if this.showMediaLibraryNotice}}
