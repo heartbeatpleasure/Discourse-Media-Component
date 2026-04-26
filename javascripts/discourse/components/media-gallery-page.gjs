@@ -745,6 +745,9 @@ export default class MediaGalleryPage extends Component {
   _thumbRetryById = new Map();
   _thumbFailures = new Set();
 
+  _mediaTypeSelectEl = null;
+  _genderSelectEl = null;
+
   // Some endpoints may 500 when receiving a tags parameter. Track per endpoint
   // to avoid repeated failing requests (and noisy console/network errors).
   _tagsBrokenByEndpoint = new Map();
@@ -1731,6 +1734,40 @@ export default class MediaGalleryPage extends Component {
     }
   }
 
+  _setNativeSelectValue(el, value) {
+    if (!el) return;
+
+    const nextValue = String(value || "");
+    if (el.value !== nextValue) {
+      el.value = nextValue;
+    }
+  }
+
+  _syncNativeFilterSelects() {
+    this._setNativeSelectValue(this._mediaTypeSelectEl, this.mediaType);
+    this._setNativeSelectValue(this._genderSelectEl, this.gender);
+  }
+
+  _syncNativeFilterSelectsSoon() {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => this._syncNativeFilterSelects());
+    } else {
+      setTimeout(() => this._syncNativeFilterSelects(), 0);
+    }
+  }
+
+  @action
+  syncMediaTypeSelect(el) {
+    this._mediaTypeSelectEl = el;
+    this._setNativeSelectValue(el, this.mediaType);
+  }
+
+  @action
+  syncGenderSelect(el) {
+    this._genderSelectEl = el;
+    this._setNativeSelectValue(el, this.gender);
+  }
+
   // -----------------------
   // Tabs / paging
   // -----------------------
@@ -1812,6 +1849,7 @@ export default class MediaGalleryPage extends Component {
     this.sortBy = DEFAULT_SORT_BY;
     this.page = 1;
     this.updateUrlState();
+    this._syncNativeFilterSelectsSoon();
     this.refresh();
   }
 
@@ -1823,6 +1861,7 @@ export default class MediaGalleryPage extends Component {
     this.sortBy = this.normalizedSortBy;
     this.page = 1;
     this.updateUrlState();
+    this._syncNativeFilterSelectsSoon();
     this.refresh();
   }
 
@@ -4155,7 +4194,7 @@ toggleImageFullscreen(e) {
 
         <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.type_label"}}</label>
-          <select {{on "change" this.setMediaType}} value={{this.mediaType}}>
+          <select {{didInsert this.syncMediaTypeSelect}} {{on "change" this.setMediaType}} value={{this.mediaType}}>
             <option value="" selected={{eq this.mediaType ""}}>Do not consider</option>
             <option value="image" selected={{eq this.mediaType "image"}}>image</option>
             <option value="video" selected={{eq this.mediaType "video"}}>video</option>
@@ -4165,7 +4204,7 @@ toggleImageFullscreen(e) {
 
         <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.gender_label"}}</label>
-          <select {{on "change" this.setGender}} value={{this.gender}}>
+          <select {{didInsert this.syncGenderSelect}} {{on "change" this.setGender}} value={{this.gender}}>
             <option value="" selected={{eq this.gender ""}}>Do not consider</option>
             <option value="male" selected={{eq this.gender "male"}}>{{i18n "media_gallery.genders.male"}}</option>
             <option value="female" selected={{eq this.gender "female"}}>{{i18n "media_gallery.genders.female"}}</option>
