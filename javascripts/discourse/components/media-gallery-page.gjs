@@ -4024,9 +4024,10 @@ toggleImageFullscreen(e) {
         <strong>Possible duplicate file</strong>
         <div>{{this.duplicateUploadMessage}}</div>
         {{#if this.pendingDuplicateUploadPayload}}
+          <div class="hb-muted" style="margin-top: 0.35rem;">Continuing will create a separate media item for the file you selected.</div>
           <div class="hb-media-library-actions-row" style="margin-top: 0.75rem;">
             <button class="btn btn-primary" type="button" disabled={{this.uploadBusy}} {{on "click" this.confirmDuplicateUpload}}>
-              Upload anyway
+              Create duplicate item anyway
             </button>
             <button class="btn btn-default" type="button" disabled={{this.uploadBusy}} {{on "click" this.cancelDuplicateUpload}}>
               Cancel
