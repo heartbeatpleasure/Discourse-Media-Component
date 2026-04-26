@@ -124,6 +124,14 @@ const SORT_VALUES = ["newest", "oldest", "title_asc", "title_desc", "most_liked"
 const MEDIA_TYPE_FILTER_VALUES = ["", "image", "video", "audio"];
 const GENDER_FILTER_VALUES = ["", "male", "female", "both", "non_binary", "objects", "other"];
 const STATUS_FILTER_VALUES = ["", "queued", "processing", "ready", "failed"];
+const REPORT_REASON_FALLBACKS = [
+  { id: "copyright", label: "Copyright or ownership issue" },
+  { id: "personal_info", label: "Personal or private information" },
+  { id: "illegal", label: "Illegal or prohibited content" },
+  { id: "inappropriate", label: "Inappropriate content" },
+  { id: "rule_violation", label: "Media guideline violation" },
+  { id: "other", label: "Other" },
+];
 const PER_PAGE_VALUES = [20, 30, 40];
 
 const DEFAULT_LIBRARY_NOTICE_TITLE = "Use this media library responsibly.";
@@ -263,6 +271,26 @@ function normalizePermissionsPayload(raw) {
     access_blocked: raw.access_blocked === true,
     viewer_groups: normalizePermissionGroups(raw.viewer_groups),
     uploader_groups: normalizePermissionGroups(raw.uploader_groups),
+  };
+}
+
+function normalizeReportsPayload(raw) {
+  if (!raw || typeof raw !== "object") {
+    return { enabled: false, reasons: REPORT_REASON_FALLBACKS };
+  }
+
+  const reasons = Array.isArray(raw.reasons)
+    ? raw.reasons
+        .map((entry) => ({
+          id: normalizePlainTextForSubmit(entry?.id, { maxLength: 40, allowNewlines: false }),
+          label: normalizeNoticeText(entry?.label, { maxLength: 120 }),
+        }))
+        .filter((entry) => entry.id && entry.label)
+    : [];
+
+  return {
+    enabled: raw.enabled === true,
+    reasons: reasons.length ? reasons : REPORT_REASON_FALLBACKS,
   };
 }
 
@@ -664,6 +692,7 @@ export default class MediaGalleryPage extends Component {
   @tracked watermarkConfig = null;
   @tracked uploadPolicy = null;
   @tracked permissions = null;
+  @tracked reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
   @tracked mediaConfigLoaded = false;
   @tracked uploadWatermarkEnabled = true;
   @tracked uploadWatermarkPresetId = "";
@@ -701,6 +730,14 @@ export default class MediaGalleryPage extends Component {
   @tracked previewPseudoFullscreen = false;
   @tracked previewOverlay = null;
   @tracked previewOverlayPositionIndex = 0;
+
+  // Report modal
+  @tracked reportOpen = false;
+  @tracked reportItem = null;
+  @tracked reportReason = "";
+  @tracked reportMessage = "";
+  @tracked reportBusy = false;
+  @tracked reportError = "";
 
   // Delete confirmation modal
   @tracked deleteOpen = false;
@@ -851,6 +888,7 @@ export default class MediaGalleryPage extends Component {
       this.watermarkConfig = res?.watermark || null;
       this.uploadPolicy = res?.upload_policy || null;
       this.permissions = normalizePermissionsPayload(res?.permissions);
+      this.reportsConfig = normalizeReportsPayload(res?.reports);
 
       // Defaults for the upload UI
       if (this.watermarkConfig?.enabled) {
@@ -865,6 +903,7 @@ export default class MediaGalleryPage extends Component {
       const status = Number(e?.jqXHR?.status || 0);
       this.watermarkConfig = null;
       this.uploadPolicy = null;
+      this.reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
 
       if (status === 403 || status === 404) {
         this.permissions = {
@@ -2554,6 +2593,115 @@ export default class MediaGalleryPage extends Component {
     if (current) {
       current._thumbFailed = true;
       this.items = [...this.items];
+    }
+  }
+
+  // -----------------------
+  // Report flow
+  // -----------------------
+  get canReportMedia() {
+    return !!(this.canViewMedia && this.reportsConfig?.enabled && this.previewItem?.public_id);
+  }
+
+  get reportReasons() {
+    return Array.isArray(this.reportsConfig?.reasons) && this.reportsConfig.reasons.length
+      ? this.reportsConfig.reasons
+      : REPORT_REASON_FALLBACKS;
+  }
+
+  get reportSubmitDisabled() {
+    return this.reportBusy || !this.reportItem?.public_id || !String(this.reportReason || "").trim();
+  }
+
+  @action
+  openReportModal(item, ev) {
+    ev?.stopPropagation?.();
+    if (!this.reportsConfig?.enabled || !item?.public_id) {
+      return;
+    }
+
+    this.reportOpen = true;
+    this.reportItem = item;
+    this.reportReason = this.reportReasons[0]?.id || "other";
+    this.reportMessage = "";
+    this.reportBusy = false;
+    this.reportError = "";
+  }
+
+  @action
+  closeReportModal() {
+    if (this.reportBusy) {
+      return;
+    }
+
+    this.reportOpen = false;
+    this.reportItem = null;
+    this.reportReason = "";
+    this.reportMessage = "";
+    this.reportBusy = false;
+    this.reportError = "";
+  }
+
+  @action
+  setReportReason(e) {
+    const value = normalizePlainTextForSubmit(e?.target?.value, { maxLength: 40, allowNewlines: false });
+    const allowed = new Set(this.reportReasons.map((reason) => String(reason.id)));
+    this.reportReason = allowed.has(value) ? value : "other";
+  }
+
+  @action
+  setReportMessage(e) {
+    this.reportMessage = normalizePlainTextForTyping(e?.target?.value, {
+      maxLength: 1200,
+      allowNewlines: true,
+    });
+  }
+
+  @action
+  async submitReport() {
+    if (this.reportSubmitDisabled) {
+      return;
+    }
+
+    const publicId = this.reportItem.public_id;
+    this.reportBusy = true;
+    this.reportError = "";
+    this.noticeMessage = null;
+    this.errorMessage = null;
+
+    try {
+      const payload = {
+        reason: this.reportReason,
+      };
+      const message = normalizePlainTextForSubmit(this.reportMessage, {
+        maxLength: 1200,
+        allowNewlines: true,
+      });
+      if (message) {
+        payload.message = message;
+      }
+
+      const res = await ajax(`/media/${publicId}/report`, { type: "POST", data: payload });
+      const messageKey = res?.duplicate ? "media_gallery.report_duplicate" : "media_gallery.report_submitted";
+      this.noticeMessage = res?.message || I18n.t(messageKey);
+      this._updateItemByPublicId(publicId, { _reportedByMe: true });
+      if (this.previewItem?.public_id === publicId) {
+        this.previewItem = { ...this.previewItem, _reportedByMe: true };
+      }
+      this.reportBusy = false;
+      this.reportOpen = false;
+      this.reportItem = null;
+      this.reportReason = "";
+      this.reportMessage = "";
+      this.reportError = "";
+    } catch (e) {
+      this.reportError =
+        e?.jqXHR?.responseJSON?.message ||
+        e?.jqXHR?.responseJSON?.error ||
+        e?.message ||
+        I18n.t("media_gallery.report_failed");
+    } finally {
+      this.reportBusy = false;
     }
   }
 
@@ -4992,6 +5140,19 @@ toggleImageFullscreen(e) {
                   {{/if}}
 
                   <div class="hb-media-preview__panelFooter">
+                    {{#if this.canReportMedia}}
+                      <button
+                        class="btn btn-default hb-media-report-btn"
+                        type="button"
+                        disabled={{this.previewItem._reportedByMe}}
+                        title={{i18n "media_gallery.report_media"}}
+                        {{on "click" (fn this.openReportModal this.previewItem)}}
+                      >
+                        {{icon "flag"}}
+                        <span>{{i18n "media_gallery.report_media"}}</span>
+                      </button>
+                    {{/if}}
+
                     <button
                       class={{concat "hb-media-like hb-media-like--lg " (if this.previewItem.liked "is-liked " "") (if this.previewItem._likePending "is-pending" "")}}
                       type="button"
@@ -5006,6 +5167,69 @@ toggleImageFullscreen(e) {
                 </div>
               </div>
             {{/if}}
+          </div>
+        </div>
+      </div>
+    {{/if}}
+
+    {{!-- Report modal --}}
+    {{#if this.reportOpen}}
+      <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closeReportModal}}>
+        <div class="hb-media-library-modal hb-media-library-modal--form hb-media-library-modal--report" {{on "click" this.stopBackdropClick}}>
+          <div class="hb-media-library-modal-header">
+            <div class="title">{{i18n "media_gallery.report_item_title"}}</div>
+            <button class="btn btn-default" type="button" disabled={{this.reportBusy}} {{on "click" this.closeReportModal}}>
+              {{i18n "media_gallery.report_cancel"}}
+            </button>
+          </div>
+
+          <div class="hb-media-library-modal-body">
+            {{#if this.reportItem}}
+              <p class="hb-media-report__intro">
+                <strong>{{this.reportItem.title}}</strong>
+              </p>
+            {{/if}}
+
+            {{#if this.reportError}}
+              <div class="hb-media-report__error">{{this.reportError}}</div>
+            {{/if}}
+
+            <div class="hb-media-library-form-grid">
+              <div class="hb-field hb-field--span2">
+                <label class="form-label">{{i18n "media_gallery.report_reason_label"}}</label>
+                <select value={{this.reportReason}} disabled={{this.reportBusy}} {{on "change" this.setReportReason}}>
+                  {{#each this.reportReasons as |reason|}}
+                    <option value={{reason.id}} selected={{eq this.reportReason reason.id}}>{{reason.label}}</option>
+                  {{/each}}
+                </select>
+              </div>
+
+              <div class="hb-field hb-field--span2">
+                <label class="form-label">{{i18n "media_gallery.report_message_label"}}</label>
+                <textarea
+                  rows="5"
+                  maxlength="1200"
+                  value={{this.reportMessage}}
+                  placeholder={{i18n "media_gallery.report_message_placeholder"}}
+                  disabled={{this.reportBusy}}
+                  {{on "input" this.setReportMessage}}
+                ></textarea>
+              </div>
+            </div>
+
+            <div class="hb-media-library-actions-row">
+              <button class="btn btn-default" type="button" disabled={{this.reportBusy}} {{on "click" this.closeReportModal}}>
+                {{i18n "media_gallery.report_cancel"}}
+              </button>
+
+              <button class="btn btn-danger" type="button" disabled={{this.reportSubmitDisabled}} {{on "click" this.submitReport}}>
+                {{#if this.reportBusy}}
+                  {{i18n "media_gallery.report_submitting"}}
+                {{else}}
+                  {{i18n "media_gallery.report_submit"}}
+                {{/if}}
+              </button>
+            </div>
           </div>
         </div>
       </div>

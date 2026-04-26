@@ -1532,6 +1532,28 @@
     padding-top: 0.25rem;
   }
 
+
+  .hb-media-report-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-right: 0.5rem;
+  }
+
+  .hb-media-report__intro {
+    margin-top: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .hb-media-report__error {
+    border: 1px solid var(--danger-low-mid);
+    background: var(--danger-low);
+    color: var(--danger);
+    border-radius: 10px;
+    padding: 0.65rem 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
   .hb-media-like--lg {
     padding: 0.45rem 0.7rem;
     border-radius: 999px;
