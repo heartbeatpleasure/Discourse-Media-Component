@@ -117,6 +117,13 @@ const MAX_LIBRARY_NOTICE_TITLE_LENGTH = 160;
 const MAX_LIBRARY_NOTICE_BODY_LENGTH = 600;
 const MAX_LIBRARY_NOTICE_LINK_TEXT_LENGTH = 80;
 
+const DEFAULT_SORT_BY = "newest";
+const SORT_VALUES = ["newest", "oldest", "title_asc", "title_desc", "most_liked", "most_viewed"];
+const MEDIA_TYPE_FILTER_VALUES = ["", "image", "video", "audio"];
+const GENDER_FILTER_VALUES = ["", "male", "female", "both", "non_binary", "objects", "other"];
+const STATUS_FILTER_VALUES = ["", "queued", "processing", "ready", "failed"];
+const PER_PAGE_VALUES = [20, 30, 40];
+
 const DEFAULT_LIBRARY_NOTICE_TITLE = "Use this media library responsibly.";
 const DEFAULT_LIBRARY_NOTICE_BODY =
   "Please review and follow the {guidelines_link}. Content may include visible or invisible watermarking.";
@@ -179,6 +186,32 @@ function searchTerms(value) {
   }).toLowerCase();
 
   return text.split(/\s+/g).filter(Boolean);
+}
+
+function normalizedSearchQuery(value) {
+  return normalizePlainTextForSubmit(value, {
+    maxLength: MAX_SEARCH_LENGTH,
+    allowNewlines: false,
+  });
+}
+
+function pickAllowedValue(value, allowedValues, defaultValue = "") {
+  const v = String(value || "").trim();
+  return allowedValues.includes(v) ? v : defaultValue;
+}
+
+function normalizeSortValue(value) {
+  return pickAllowedValue(value, SORT_VALUES, DEFAULT_SORT_BY);
+}
+
+function parseBoundedInteger(value, { defaultValue, min, max, allowedValues = null } = {}) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n)) return defaultValue;
+
+  const bounded = Math.min(Math.max(n, min), max);
+  if (allowedValues && !allowedValues.includes(bounded)) return defaultValue;
+
+  return bounded;
 }
 
 function uniqStrings(arr) {
@@ -577,6 +610,7 @@ export default class MediaGalleryPage extends Component {
   @tracked mediaType = "";
   @tracked gender = "";
   @tracked status = ""; // only for "mine"
+  @tracked sortBy = DEFAULT_SORT_BY;
 
   // Tags (filters) - multi-select UI state
   @tracked tagsSelected = [];
@@ -749,6 +783,7 @@ export default class MediaGalleryPage extends Component {
     document.addEventListener("fullscreenchange", this._boundFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this._boundFullscreenChange);
 
+    this.restoreStateFromUrl();
     this.initializeMediaGallery();
   }
 
@@ -916,6 +951,99 @@ export default class MediaGalleryPage extends Component {
 
   get hasNext() {
     return this.page < this.totalPages;
+  }
+
+  get activeSearchQuery() {
+    return normalizedSearchQuery(this.q);
+  }
+
+  get normalizedSortBy() {
+    return normalizeSortValue(this.sortBy);
+  }
+
+  get hasActiveFilters() {
+    return !!(
+      this.activeSearchQuery ||
+      this.mediaType ||
+      this.gender ||
+      this.status ||
+      this.tagsSelected?.length ||
+      this.normalizedSortBy !== DEFAULT_SORT_BY
+    );
+  }
+
+  restoreStateFromUrl() {
+    if (typeof window === "undefined") return;
+
+    let params;
+    try {
+      params = new URLSearchParams(window.location.search || "");
+    } catch {
+      return;
+    }
+
+    const tab = String(params.get("tab") || "").trim();
+    this.activeTab = tab === "mine" ? "mine" : "all";
+    this.page = parseBoundedInteger(params.get("page"), { defaultValue: 1, min: 1, max: 100000 });
+    this.perPage = parseBoundedInteger(params.get("per_page"), {
+      defaultValue: 20,
+      min: 1,
+      max: 50,
+      allowedValues: PER_PAGE_VALUES,
+    });
+    this.q = normalizePlainTextForTyping(params.get("q"), {
+      maxLength: MAX_SEARCH_LENGTH,
+      allowNewlines: false,
+    });
+    this.mediaType = pickAllowedValue(params.get("media_type"), MEDIA_TYPE_FILTER_VALUES, "");
+    this.gender = pickAllowedValue(params.get("gender"), GENDER_FILTER_VALUES, "");
+    this.status = this.activeTab === "mine" ? pickAllowedValue(params.get("status"), STATUS_FILTER_VALUES, "") : "";
+    this.sortBy = normalizeSortValue(params.get("sort"));
+
+    const rawTags = String(params.get("tags") || "");
+    this.tagsSelected = uniqStrings(
+      rawTags
+        .split(",")
+        .map((t) => normalizeTagValue(t))
+        .filter(Boolean)
+    );
+  }
+
+  updateUrlState() {
+    if (typeof window === "undefined" || !window.history?.replaceState) return;
+
+    let url;
+    try {
+      url = new URL(window.location.href);
+    } catch {
+      return;
+    }
+
+    const params = new URLSearchParams();
+
+    if (this.activeTab === "mine") params.set("tab", "mine");
+    if (this.page > 1) params.set("page", String(this.page));
+    if (this.perPage !== 20) params.set("per_page", String(this.perPage));
+
+    const q = this.activeSearchQuery;
+    if (q) params.set("q", q);
+    if (this.mediaType) params.set("media_type", this.mediaType);
+    if (this.gender) params.set("gender", this.gender);
+    if (this.activeTab === "mine" && this.status) params.set("status", this.status);
+
+    const tags = uniqStrings((this.tagsSelected || []).map((t) => normalizeTagValue(t)).filter(Boolean));
+    if (tags.length) params.set("tags", tags.join(","));
+
+    const sort = this.normalizedSortBy;
+    if (sort !== DEFAULT_SORT_BY) params.set("sort", sort);
+
+    const nextSearch = params.toString();
+    const nextUrl = url.pathname + (nextSearch ? "?" + nextSearch : "") + (url.hash || "");
+    const currentUrl = url.pathname + (url.search || "") + (url.hash || "");
+
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, "", nextUrl);
+    }
   }
 
   get allowedTags() {
@@ -1513,8 +1641,10 @@ export default class MediaGalleryPage extends Component {
     if (this.activeTab === tab) return;
     this.noticeMessage = null;
     this.errorMessage = null;
-    this.activeTab = tab;
+    this.activeTab = tab === "mine" ? "mine" : "all";
+    if (!this.isMine) this.status = "";
     this.page = 1;
+    this.updateUrlState();
     this.refresh();
   }
 
@@ -1524,6 +1654,7 @@ export default class MediaGalleryPage extends Component {
     this.noticeMessage = null;
     this.errorMessage = null;
     this.page = this.page - 1;
+    this.updateUrlState();
     this.refresh();
   }
 
@@ -1533,6 +1664,7 @@ export default class MediaGalleryPage extends Component {
     this.noticeMessage = null;
     this.errorMessage = null;
     this.page = this.page + 1;
+    this.updateUrlState();
     this.refresh();
   }
   
@@ -1553,14 +1685,19 @@ export default class MediaGalleryPage extends Component {
   // Filters
   // -----------------------
   @action setQ(e) { this.q = normalizePlainTextForTyping(e.target.value, { maxLength: MAX_SEARCH_LENGTH, allowNewlines: false }); }
-  @action setMediaType(e) { this.mediaType = e.target.value; }
-  @action setGender(e) { this.gender = e.target.value; }
-  @action setStatus(e) { this.status = e.target.value; }
+  @action setMediaType(e) { this.mediaType = pickAllowedValue(e.target.value, MEDIA_TYPE_FILTER_VALUES, ""); }
+  @action setGender(e) { this.gender = pickAllowedValue(e.target.value, GENDER_FILTER_VALUES, ""); }
+  @action setStatus(e) { this.status = pickAllowedValue(e.target.value, STATUS_FILTER_VALUES, ""); }
+  @action setSortBy(e) { this.sortBy = normalizeSortValue(e.target.value); }
 
   @action
   setPerPage(e) {
-    const v = parseInt(e.target.value, 10);
-    this.perPage = Number.isFinite(v) ? Math.min(Math.max(v, 1), 50) : 20;
+    this.perPage = parseBoundedInteger(e.target.value, {
+      defaultValue: 20,
+      min: 1,
+      max: 50,
+      allowedValues: PER_PAGE_VALUES,
+    });
   }
 
   @action
@@ -1574,7 +1711,9 @@ export default class MediaGalleryPage extends Component {
     this.filterTagsQuery = "";
     this.filterTagsOpen = false;
     this.status = "";
+    this.sortBy = DEFAULT_SORT_BY;
     this.page = 1;
+    this.updateUrlState();
     this.refresh();
   }
 
@@ -1582,7 +1721,10 @@ export default class MediaGalleryPage extends Component {
   applyFilters() {
     this.noticeMessage = null;
     this.errorMessage = null;
+    this.q = this.activeSearchQuery;
+    this.sortBy = this.normalizedSortBy;
     this.page = 1;
+    this.updateUrlState();
     this.refresh();
   }
 
@@ -3558,8 +3700,11 @@ toggleImageFullscreen(e) {
       };
 
       const tags = uniqStrings(this.tagsSelected || []);
+      const q = this.activeSearchQuery;
+      if (q) data.q = q;
       if (this.mediaType) data.media_type = this.mediaType;
       if (this.gender) data.gender = this.gender;
+      data.sort = this.normalizedSortBy;
 
       const endpoint = this.isMine ? "/media/my" : "/media";
       if (this.isMine && this.status) data.status = this.status;
@@ -3992,6 +4137,18 @@ toggleImageFullscreen(e) {
             </select>
           </div>
         {{/if}}
+
+        <div class="hb-field">
+          <label class="form-label">Sort by</label>
+          <select {{on "change" this.setSortBy}} value={{this.sortBy}}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="title_asc">Title A-Z</option>
+            <option value="title_desc">Title Z-A</option>
+            <option value="most_liked">Most liked</option>
+            <option value="most_viewed">Most viewed</option>
+          </select>
+        </div>
 
         <div class="hb-field">
           <label class="form-label">{{i18n "media_gallery.per_page_label"}}</label>
