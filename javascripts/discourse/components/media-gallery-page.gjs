@@ -269,6 +269,9 @@ function normalizePermissionsPayload(raw) {
     can_view: raw.can_view !== false,
     can_upload: raw.can_upload !== false,
     access_blocked: raw.access_blocked === true,
+    view_blocked: raw.view_blocked === true || raw.access_blocked === true,
+    upload_blocked: raw.upload_blocked === true,
+    upload_only_blocked: raw.upload_only_blocked === true,
     viewer_groups: normalizePermissionGroups(raw.viewer_groups),
     uploader_groups: normalizePermissionGroups(raw.uploader_groups),
   };
@@ -970,7 +973,7 @@ export default class MediaGalleryPage extends Component {
   }
 
   get uploadAccessDenied() {
-    return this.mediaConfigLoaded && this.permissions?.can_upload === false;
+    return this.mediaConfigLoaded && this.permissions?.can_upload === false && this.permissions?.can_view !== false;
   }
 
   get viewerGroupsLabel() {
@@ -982,7 +985,11 @@ export default class MediaGalleryPage extends Component {
   }
 
   get accessBlockedByStaff() {
-    return this.permissions?.access_blocked === true;
+    return this.permissions?.view_blocked === true || this.permissions?.access_blocked === true;
+  }
+
+  get uploadBlockedByStaff() {
+    return this.permissions?.upload_blocked === true || this.permissions?.upload_only_blocked === true;
   }
 
   get viewAccessHeading() {
@@ -999,10 +1006,10 @@ export default class MediaGalleryPage extends Component {
   }
 
   get uploadAccessHeading() {
-    const key = this.accessBlockedByStaff
+    const key = this.uploadBlockedByStaff
       ? "media_gallery_blocked_upload_title"
       : "media_gallery_upload_restricted_title";
-    const fallback = this.accessBlockedByStaff
+    const fallback = this.uploadBlockedByStaff
       ? DEFAULT_BLOCKED_UPLOAD_TITLE
       : DEFAULT_UPLOAD_RESTRICTED_TITLE;
 
@@ -1039,7 +1046,7 @@ export default class MediaGalleryPage extends Component {
   }
 
   get uploadAccessMessage() {
-    if (this.accessBlockedByStaff) {
+    if (this.uploadBlockedByStaff) {
       return siteSettingText(
         this.siteSettings,
         "media_gallery_blocked_upload_message",
