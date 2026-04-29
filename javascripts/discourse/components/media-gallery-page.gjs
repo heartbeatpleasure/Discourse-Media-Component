@@ -3596,9 +3596,12 @@ toggleImageFullscreen(e) {
     const publicId = this.previewItem?.public_id;
     if (!el || !publicId) return false;
 
+    const security = this._previewSecurity || {};
+    const hlsOnly = !!security.hls_only || security.stream_fallback_allowed === false;
+
     this._previewTriedStreamFallback = true;
 
-    // Revoke the HLS token so it can't be reused, then request a fresh stream token.
+    // Revoke the HLS token so it can't be reused, whether we fall back or block fallback.
     try {
       this._previewRevokePromise = this._revokePreviewToken();
     } catch {
@@ -3617,6 +3620,12 @@ toggleImageFullscreen(e) {
     this._previewStreamToken = null;
     this._previewSourceAttached = false;
     this._previewIsHls = false;
+
+    if (hlsOnly) {
+      this.errorMessage =
+        "This video requires protected HLS playback. HLS could not be started in this browser.";
+      return false;
+    }
 
     try {
       await this.fetchPreviewStreamUrl({ resetRetry: true, forceStream: true });
