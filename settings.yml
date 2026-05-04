@@ -27,6 +27,13 @@ hls_js_url:
     en: "URL to hls.js (used for HLS playback in Chrome/Firefox). Leave empty to disable hls.js loading."
     nl: "URL naar hls.js (nodig voor HLS in Chrome/Firefox). Laat leeg om hls.js niet te laden."
 
+hls_js_allowed_url_prefixes:
+  default: "https://cdn.jsdelivr.net/npm/hls.js@"
+  type: list
+  description:
+    en: "Allowed URL prefixes for loading hls.js. Keep this restricted to trusted CDN prefixes. Leave empty to block external hls.js loading."
+    nl: "Toegestane URL-prefixes voor het laden van hls.js. Beperk dit tot vertrouwde CDN-prefixes. Laat leeg om extern laden van hls.js te blokkeren."
+
 hls_prefer_native:
   default: true
   type: bool

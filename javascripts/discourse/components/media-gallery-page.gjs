@@ -48,6 +48,35 @@ function normalizeSafeLinkUrl(raw) {
   return null;
 }
 
+function normalizeAbsoluteHttpUrl(raw) {
+  const str = String(raw || "").trim();
+  if (!str || /[\u0000-\u001F\u007F]/.test(str)) return null;
+
+  try {
+    const url = new URL(str);
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      return url.href;
+    }
+  } catch {
+    // ignore invalid or relative script URLs
+  }
+
+  return null;
+}
+
+function hlsScriptUrlAllowed(rawUrl, rawAllowedPrefixes) {
+  const url = normalizeAbsoluteHttpUrl(rawUrl);
+  if (!url) return false;
+
+  const prefixes = normalizeListSetting(rawAllowedPrefixes)
+    .map((prefix) => normalizeAbsoluteHttpUrl(prefix) || String(prefix || "").trim())
+    .filter(Boolean);
+
+  if (!prefixes.length) return false;
+
+  return prefixes.some((prefix) => url.startsWith(prefix));
+}
+
 function normalizeNoticeText(raw, { maxLength = 600 } = {}) {
   let text = String(raw || "");
   text = text.replace(/<[^>]*>/g, "");
@@ -3547,7 +3576,15 @@ toggleImageFullscreen(e) {
 
     // Load hls.js for browsers without native support.
     const hlsUrl = this._getThemeSetting("hls_js_url", "");
+    const allowedPrefixes = this._getThemeSetting("hls_js_allowed_url_prefixes", "https://cdn.jsdelivr.net/npm/hls.js@");
+
     if (hlsUrl) {
+      if (!hlsScriptUrlAllowed(hlsUrl, allowedPrefixes)) {
+        this.errorMessage =
+          "HLS playback script URL is not allowed by the component allowlist. Ask an administrator to update hls_js_url or hls_js_allowed_url_prefixes.";
+        return false;
+      }
+
       try {
         await loadScriptOnce(hlsUrl);
       } catch {
@@ -3623,6 +3660,7 @@ toggleImageFullscreen(e) {
 
     if (hlsOnly) {
       this.errorMessage =
+        this.errorMessage ||
         "This video requires protected HLS playback. HLS could not be started in this browser.";
       return false;
     }
