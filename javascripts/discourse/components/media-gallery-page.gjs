@@ -77,6 +77,29 @@ function hlsScriptUrlAllowed(rawUrl, rawAllowedPrefixes) {
   return prefixes.some((prefix) => url.startsWith(prefix));
 }
 
+function hlsScriptCandidates(primaryUrl, fallbackUrls) {
+  const candidates = [];
+  const add = (value) => {
+    const normalized = normalizeAbsoluteHttpUrl(value);
+    if (!normalized || candidates.includes(normalized)) return;
+    candidates.push(normalized);
+  };
+
+  add(primaryUrl);
+  normalizeListSetting(fallbackUrls).forEach(add);
+  return candidates;
+}
+
+function mediaGalleryDebugLog(enabled, ...args) {
+  if (!enabled) return;
+  try {
+    // eslint-disable-next-line no-console
+    console.debug("[media-gallery]", ...args);
+  } catch {
+    // ignore
+  }
+}
+
 function normalizeNoticeText(raw, { maxLength = 600 } = {}) {
   let text = String(raw || "");
   text = text.replace(/<[^>]*>/g, "");
@@ -359,6 +382,8 @@ function isProcessingStatus(status) {
 // ---- HLS helpers (milestone 1) ---------------------------------------------
 
 const HLS_MIME = "application/vnd.apple.mpegurl";
+const DEFAULT_HLS_JS_URL = "https://cdn.jsdelivr.net/npm/hls.js@1.5.14/dist/hls.min.js";
+const DEFAULT_HLS_JS_ALLOWED_URL_PREFIXES = "https://cdn.jsdelivr.net/npm/hls.js@|https://unpkg.com/hls.js@";
 
 const _loadedScripts = new Map();
 function loadScriptOnce(url) {
@@ -3518,13 +3543,37 @@ toggleImageFullscreen(e) {
   }
 
   _getThemeSetting(key, fallback = null) {
+    const isBlank = (value) => {
+      if (value === undefined || value === null) return true;
+      if (typeof value === "string") return value.trim() === "";
+      if (Array.isArray(value)) return value.length === 0;
+      return false;
+    };
+
     try {
-      const v = this.themeSettings?.getSetting?.(key);
-      if (v === undefined || v === null || String(v).trim?.() === "") return fallback;
-      return v;
+      const themeValue = this.themeSettings?.getSetting?.(key);
+      if (!isBlank(themeValue)) return themeValue;
     } catch {
-      return fallback;
+      // fall through to global theme-component settings
     }
+
+    try {
+      if (typeof settings !== "undefined") {
+        const globalValue = settings?.[key];
+        if (!isBlank(globalValue)) return globalValue;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const directValue = this.themeSettings?.[key];
+      if (!isBlank(directValue)) return directValue;
+    } catch {
+      // ignore
+    }
+
+    return fallback;
   }
 
   _destroyPreviewHls() {
@@ -3575,30 +3624,56 @@ toggleImageFullscreen(e) {
     }
 
     // Load hls.js for browsers without native support.
-    const hlsUrl = this._getThemeSetting("hls_js_url", "");
-    const allowedPrefixes = this._getThemeSetting("hls_js_allowed_url_prefixes", "https://cdn.jsdelivr.net/npm/hls.js@");
+    const debug = !!this._getThemeSetting("hls_debug", false);
+    const hlsUrl = this._getThemeSetting("hls_js_url", DEFAULT_HLS_JS_URL);
+    const fallbackUrls = this._getThemeSetting("hls_js_fallback_urls", "");
+    const allowedPrefixes = this._getThemeSetting("hls_js_allowed_url_prefixes", DEFAULT_HLS_JS_ALLOWED_URL_PREFIXES);
+    const candidates = hlsScriptCandidates(hlsUrl, fallbackUrls);
 
-    if (hlsUrl) {
-      if (!hlsScriptUrlAllowed(hlsUrl, allowedPrefixes)) {
-        this.errorMessage =
-          "HLS playback script URL is not allowed by the component allowlist. Ask an administrator to update hls_js_url or hls_js_allowed_url_prefixes.";
-        return false;
+    if (!candidates.length) {
+      this.errorMessage =
+        "HLS playback needs hls.js in this browser, but no hls.js URL is configured.";
+      mediaGalleryDebugLog(debug, "No hls.js candidates configured", { hlsUrl, fallbackUrls });
+      return false;
+    }
+
+    let lastLoadError = null;
+    let attemptedAllowedCandidate = false;
+
+    for (const candidate of candidates) {
+      if (!hlsScriptUrlAllowed(candidate, allowedPrefixes)) {
+        mediaGalleryDebugLog(debug, "Blocked hls.js candidate by allowlist", { candidate, allowedPrefixes });
+        continue;
       }
+
+      attemptedAllowedCandidate = true;
 
       try {
-        await loadScriptOnce(hlsUrl);
-      } catch {
-        // ignore
+        mediaGalleryDebugLog(debug, "Loading hls.js candidate", candidate);
+        await loadScriptOnce(candidate);
+      } catch (e) {
+        lastLoadError = e;
+        mediaGalleryDebugLog(debug, "Failed to load hls.js candidate", candidate, e?.message || e);
+        continue;
       }
+
+      const CandidateHls = window?.Hls;
+      if (CandidateHls?.isSupported?.()) {
+        mediaGalleryDebugLog(debug, "hls.js ready", CandidateHls.version || "unknown");
+        break;
+      }
+
+      mediaGalleryDebugLog(debug, "hls.js candidate loaded but Hls.isSupported() is false", candidate);
     }
 
     const Hls = window?.Hls;
     if (!Hls || !Hls.isSupported?.()) {
       // No HLS support (and no native support, otherwise we would have returned earlier).
+      this.errorMessage = attemptedAllowedCandidate
+        ? `HLS playback needs hls.js in this browser, but hls.js could not be loaded or is not supported.${lastLoadError?.message ? ` Last load error: ${lastLoadError.message}` : ""}`
+        : "HLS playback script URL is not allowed by the component allowlist. Ask an administrator to update hls_js_url or hls_js_allowed_url_prefixes.";
       return false;
     }
-
-    const debug = !!this._getThemeSetting("hls_debug", false);
 
     this._destroyPreviewHls();
     const hls = new Hls({ debug });
