@@ -72,25 +72,25 @@ hls_stop_load_on_pause:
     nl: "Roep hls.js stopLoad() aan wanneer de preview player pauzeert, en hervat laden bij play. Heeft geen effect op native Safari/iOS HLS."
 
 hls_max_buffer_length_seconds:
-  default: 24
+  default: 18
   type: integer
   min: 6
   max: 120
   description:
-    en: "Target forward buffer length for hls.js, in seconds. Lower values reduce prefetching but may increase buffering on slow networks."
-    nl: "Doel voor vooruitbuffer van hls.js, in seconden. Lagere waarden verminderen prefetching maar kunnen meer buffering geven op trage netwerken."
+    en: "Target forward buffer length and active buffer-guard stop threshold for hls.js, in seconds. Lower values reduce prefetching but may increase buffering on slow networks."
+    nl: "Doel voor vooruitbuffer en actieve buffer-guard stoplimiet voor hls.js, in seconden. Lagere waarden verminderen prefetching maar kunnen meer buffering geven op trage netwerken."
 
 hls_max_max_buffer_length_seconds:
-  default: 60
+  default: 36
   type: integer
   min: 12
   max: 300
   description:
-    en: "Harder forward buffer cap for hls.js, in seconds. Keep below the full length of typical short protected videos."
-    nl: "Hardere vooruitbuffer limiet voor hls.js, in seconden. Houd dit onder de volledige lengte van typische korte beschermde video's."
+    en: "Secondary forward buffer cap for hls.js, in seconds. The active buffer guard primarily uses hls_max_buffer_length_seconds; keep this reasonably low as a fallback cap."
+    nl: "Secundaire vooruitbufferlimiet voor hls.js, in seconden. De actieve buffer-guard gebruikt vooral hls_max_buffer_length_seconds; houd dit als fallback redelijk laag."
 
 hls_max_buffer_size_mb:
-  default: 30
+  default: 20
   type: integer
   min: 4
   max: 200

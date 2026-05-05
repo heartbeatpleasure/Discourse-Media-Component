@@ -831,6 +831,8 @@ export default class MediaGalleryPage extends Component {
 
   _previewHls = null;
   _previewHlsStoppedByPause = false;
+  _previewHlsStoppedByBufferGuard = false;
+  _previewHlsBufferGuardTimer = null;
   _previewSourceAttached = false;
   _previewIsHls = false;
   _previewTriedStreamFallback = false;
@@ -3123,12 +3125,27 @@ onPreviewVideoMeta(e) {
     if (Number.isFinite(el.duration)) {
       this.previewDuration = el.duration;
     }
+    this._enforcePreviewHlsBufferGuard();
+  }
+
+  @action
+  onPreviewSeeking() {
+    // If the guard stopped loading near the previous playhead, a seek should
+    // immediately restart loading at the new position.
+    this._enforcePreviewHlsBufferGuard({ forceResume: true });
+  }
+
+  @action
+  onPreviewWaiting() {
+    this._enforcePreviewHlsBufferGuard({ forceResume: true });
   }
 
   @action
   onPreviewPlay() {
     this.previewIsPlaying = true;
     this._resumePreviewHlsLoadingAfterPause();
+    this._startPreviewHlsBufferGuardTimer();
+    this._enforcePreviewHlsBufferGuard({ forceResume: true });
     this._startPreviewHeartbeat();
   }
 
@@ -3142,6 +3159,7 @@ onPreviewVideoMeta(e) {
   @action
   onPreviewEnded() {
     this.previewIsPlaying = false;
+    this._stopPreviewHlsBufferGuardTimer();
     this._stopPreviewHeartbeat();
 
     // Best-effort: revoke the token at the end so it can't be reused for casual downloading.
@@ -3337,6 +3355,7 @@ seekPreview(e) {
     try {
       el.currentTime = Math.max(0, v);
       this.previewCurrentTime = el.currentTime;
+      this._enforcePreviewHlsBufferGuard({ forceResume: true });
     } catch {
       // ignore
     }
@@ -3607,17 +3626,17 @@ toggleImageFullscreen(e) {
     }
 
     const maxBufferLength = this._themeIntegerSetting("hls_max_buffer_length_seconds", {
-      defaultValue: 24,
+      defaultValue: 18,
       min: 6,
       max: 120,
     });
     const maxMaxBufferLength = this._themeIntegerSetting("hls_max_max_buffer_length_seconds", {
-      defaultValue: 60,
+      defaultValue: 36,
       min: Math.max(12, maxBufferLength),
       max: 300,
     });
     const maxBufferSizeMb = this._themeIntegerSetting("hls_max_buffer_size_mb", {
-      defaultValue: 30,
+      defaultValue: 20,
       min: 4,
       max: 200,
     });
@@ -3640,6 +3659,99 @@ toggleImageFullscreen(e) {
     };
   }
 
+  _previewHlsForwardBufferSeconds() {
+    const el = this._previewMediaEl;
+    if (!el || !el.buffered) return 0;
+
+    const currentTime = Number(el.currentTime);
+    if (!Number.isFinite(currentTime)) return 0;
+
+    try {
+      const ranges = el.buffered;
+      for (let i = 0; i < ranges.length; i += 1) {
+        const start = Number(ranges.start(i));
+        const end = Number(ranges.end(i));
+        if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+        // Use a small tolerance because browsers can report the playhead a few
+        // milliseconds outside the buffered range boundary.
+        if (start <= currentTime + 0.25 && end >= currentTime - 0.25) {
+          return Math.max(0, end - currentTime);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return 0;
+  }
+
+  _previewHlsBufferGuardThresholds() {
+    const high = this._themeIntegerSetting("hls_max_buffer_length_seconds", {
+      defaultValue: 18,
+      min: 6,
+      max: 120,
+    });
+    const low = Math.max(3, Math.min(high - 2, Math.floor(high * 0.5)));
+    return { high, low };
+  }
+
+  _stopPreviewHlsBufferGuardTimer() {
+    if (this._previewHlsBufferGuardTimer) {
+      clearInterval(this._previewHlsBufferGuardTimer);
+      this._previewHlsBufferGuardTimer = null;
+    }
+  }
+
+  _startPreviewHlsBufferGuardTimer() {
+    if (!this._hlsConservativeBufferingEnabled()) return;
+    if (!this._previewHls || !this._previewIsHls) return;
+    if (this._previewHlsBufferGuardTimer) return;
+
+    this._previewHlsBufferGuardTimer = setInterval(() => {
+      this._enforcePreviewHlsBufferGuard();
+    }, 500);
+  }
+
+  _enforcePreviewHlsBufferGuard({ forceResume = false } = {}) {
+    if (!this._hlsConservativeBufferingEnabled()) return;
+    if (!this._previewHls || !this._previewIsHls) return;
+
+    const el = this._previewMediaEl;
+    if (!el || el.ended) return;
+
+    const { high, low } = this._previewHlsBufferGuardThresholds();
+    const forward = this._previewHlsForwardBufferSeconds();
+    const debug = !!this._getThemeSetting("hls_debug", false);
+
+    // Never let the buffer guard resume loading while pause-control is the
+    // reason loading was stopped. Play/resume owns that transition.
+    if (this._previewHlsStoppedByPause) return;
+
+    if (!el.paused && !el.seeking && forward >= high) {
+      if (!this._previewHlsStoppedByBufferGuard) {
+        try {
+          this._previewHls.stopLoad?.();
+          this._previewHlsStoppedByBufferGuard = true;
+          mediaGalleryDebugLog(debug, "hls.js buffer guard stopLoad", { forward, high, low });
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
+
+    if (this._previewHlsStoppedByBufferGuard && (forceResume || el.seeking || forward <= low)) {
+      try {
+        const position = Number.isFinite(el.currentTime) ? el.currentTime : -1;
+        this._previewHls.startLoad?.(position);
+        this._previewHlsStoppedByBufferGuard = false;
+        mediaGalleryDebugLog(debug, "hls.js buffer guard startLoad", { forward, high, low, position });
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   _stopPreviewHlsLoadingWhilePaused() {
     if (!this._previewHls || !this._hlsStopLoadOnPauseEnabled()) return;
 
@@ -3649,6 +3761,8 @@ toggleImageFullscreen(e) {
     try {
       this._previewHls.stopLoad?.();
       this._previewHlsStoppedByPause = true;
+      this._previewHlsStoppedByBufferGuard = false;
+      this._stopPreviewHlsBufferGuardTimer();
       mediaGalleryDebugLog(!!this._getThemeSetting("hls_debug", false), "hls.js stopLoad on pause");
     } catch {
       // ignore
@@ -3665,6 +3779,8 @@ toggleImageFullscreen(e) {
       const position = Number.isFinite(el.currentTime) ? el.currentTime : -1;
       this._previewHls.startLoad?.(position);
       this._previewHlsStoppedByPause = false;
+      this._previewHlsStoppedByBufferGuard = false;
+      this._startPreviewHlsBufferGuardTimer();
       mediaGalleryDebugLog(!!this._getThemeSetting("hls_debug", false), "hls.js startLoad after pause", position);
     } catch {
       // ignore
@@ -3672,6 +3788,10 @@ toggleImageFullscreen(e) {
   }
 
   _destroyPreviewHls() {
+    this._stopPreviewHlsBufferGuardTimer();
+    this._previewHlsStoppedByBufferGuard = false;
+    this._previewHlsStoppedByPause = false;
+
     if (this._previewHls) {
       try {
         this._previewHls.destroy?.();
@@ -3791,6 +3911,18 @@ toggleImageFullscreen(e) {
         await this._fallbackPreviewToStream({ reason: `hls_fatal_${data?.type || "error"}` });
       }
     });
+
+    if (Hls.Events.FRAG_BUFFERED) {
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        this._enforcePreviewHlsBufferGuard();
+      });
+    }
+
+    if (Hls.Events.BUFFER_APPENDED) {
+      hls.on(Hls.Events.BUFFER_APPENDED, () => {
+        this._enforcePreviewHlsBufferGuard();
+      });
+    }
 
     this._previewSourceAttached = true;
     this._previewIsHls = true;
@@ -5087,6 +5219,8 @@ toggleImageFullscreen(e) {
                           {{on "loadeddata" this.onPreviewLoadedData}}
                           {{on "loadedmetadata" this.onPreviewVideoMeta}}
                           {{on "timeupdate" this.onPreviewTimeUpdate}}
+                          {{on "seeking" this.onPreviewSeeking}}
+                          {{on "waiting" this.onPreviewWaiting}}
                           {{on "play" this.onPreviewPlay}}
                           {{on "pause" this.onPreviewPause}}
                           {{on "ended" this.onPreviewEnded}}
