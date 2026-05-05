@@ -830,6 +830,7 @@ export default class MediaGalleryPage extends Component {
   _previewOverlayTimer = null;
 
   _previewHls = null;
+  _previewHlsStoppedByPause = false;
   _previewSourceAttached = false;
   _previewIsHls = false;
   _previewTriedStreamFallback = false;
@@ -3127,12 +3128,14 @@ onPreviewVideoMeta(e) {
   @action
   onPreviewPlay() {
     this.previewIsPlaying = true;
+    this._resumePreviewHlsLoadingAfterPause();
     this._startPreviewHeartbeat();
   }
 
   @action
   onPreviewPause() {
     this.previewIsPlaying = false;
+    this._stopPreviewHlsLoadingWhilePaused();
     this._stopPreviewHeartbeat();
   }
 
@@ -3576,6 +3579,98 @@ toggleImageFullscreen(e) {
     return fallback;
   }
 
+  _themeSettingEnabled(key, fallback = true) {
+    return settingEnabled(this._getThemeSetting(key, fallback), fallback);
+  }
+
+  _themeIntegerSetting(key, { defaultValue, min, max }) {
+    return parseBoundedInteger(this._getThemeSetting(key, defaultValue), {
+      defaultValue,
+      min,
+      max,
+    });
+  }
+
+  _hlsConservativeBufferingEnabled() {
+    return this._themeSettingEnabled("hls_conservative_buffering_enabled", true);
+  }
+
+  _hlsStopLoadOnPauseEnabled() {
+    return this._themeSettingEnabled("hls_stop_load_on_pause", true);
+  }
+
+  _previewHlsConfig(debug) {
+    const config = { debug };
+
+    if (!this._hlsConservativeBufferingEnabled()) {
+      return config;
+    }
+
+    const maxBufferLength = this._themeIntegerSetting("hls_max_buffer_length_seconds", {
+      defaultValue: 24,
+      min: 6,
+      max: 120,
+    });
+    const maxMaxBufferLength = this._themeIntegerSetting("hls_max_max_buffer_length_seconds", {
+      defaultValue: 60,
+      min: Math.max(12, maxBufferLength),
+      max: 300,
+    });
+    const maxBufferSizeMb = this._themeIntegerSetting("hls_max_buffer_size_mb", {
+      defaultValue: 30,
+      min: 4,
+      max: 200,
+    });
+    const backBufferLength = this._themeIntegerSetting("hls_back_buffer_length_seconds", {
+      defaultValue: 30,
+      min: 0,
+      max: 300,
+    });
+
+    return {
+      ...config,
+      // Keep the original, proven startup model: hls.js may auto-start after
+      // MANIFEST_PARSED. We only cap how far it is allowed to buffer.
+      autoStartLoad: true,
+      startFragPrefetch: false,
+      maxBufferLength,
+      maxMaxBufferLength,
+      maxBufferSize: maxBufferSizeMb * BYTES_PER_MB,
+      backBufferLength,
+    };
+  }
+
+  _stopPreviewHlsLoadingWhilePaused() {
+    if (!this._previewHls || !this._hlsStopLoadOnPauseEnabled()) return;
+
+    const el = this._previewMediaEl;
+    if (!el || !this._previewIsHls || el.ended) return;
+
+    try {
+      this._previewHls.stopLoad?.();
+      this._previewHlsStoppedByPause = true;
+      mediaGalleryDebugLog(!!this._getThemeSetting("hls_debug", false), "hls.js stopLoad on pause");
+    } catch {
+      // ignore
+    }
+  }
+
+  _resumePreviewHlsLoadingAfterPause() {
+    if (!this._previewHls || !this._previewHlsStoppedByPause) return;
+
+    const el = this._previewMediaEl;
+    if (!el || !this._previewIsHls) return;
+
+    try {
+      const position = Number.isFinite(el.currentTime) ? el.currentTime : -1;
+      this._previewHls.startLoad?.(position);
+      this._previewHlsStoppedByPause = false;
+      mediaGalleryDebugLog(!!this._getThemeSetting("hls_debug", false), "hls.js startLoad after pause", position);
+    } catch {
+      // ignore
+    }
+  }
+
   _destroyPreviewHls() {
     if (this._previewHls) {
       try {
@@ -3585,6 +3680,7 @@ toggleImageFullscreen(e) {
       }
     }
     this._previewHls = null;
+    this._previewHlsStoppedByPause = false;
   }
 
   _clearPreviewMediaSource() {
@@ -3676,7 +3772,7 @@ toggleImageFullscreen(e) {
     }
 
     this._destroyPreviewHls();
-    const hls = new Hls({ debug });
+    const hls = new Hls(this._previewHlsConfig(debug));
     this._previewHls = hls;
 
     hls.attachMedia(el);
@@ -3697,6 +3793,8 @@ toggleImageFullscreen(e) {
     });
 
     this._previewSourceAttached = true;
+    this._previewIsHls = true;
+    this._previewHlsStoppedByPause = false;
     return true;
   }
 

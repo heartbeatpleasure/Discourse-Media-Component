@@ -54,3 +54,55 @@ hls_debug:
   description:
     en: "Enable hls.js debug logging (console)."
     nl: "Zet hls.js debug logging aan (console)."
+
+# HLS browser buffer tuning. This applies only to hls.js browsers such as Firefox/Chrome/Edge.
+# Safari/iOS native HLS decides its own buffering behavior.
+hls_conservative_buffering_enabled:
+  default: true
+  type: bool
+  description:
+    en: "Limit hls.js forward/back buffer for protected HLS playback. Helps prevent Firefox from fetching the entire video after playback starts."
+    nl: "Beperk de hls.js vooruit/terug buffer voor beschermde HLS playback. Helpt voorkomen dat Firefox de hele video ophaalt nadat playback start."
+
+hls_stop_load_on_pause:
+  default: true
+  type: bool
+  description:
+    en: "Call hls.js stopLoad() when the preview player is paused, and resume loading on play. Does not affect native Safari/iOS HLS."
+    nl: "Roep hls.js stopLoad() aan wanneer de preview player pauzeert, en hervat laden bij play. Heeft geen effect op native Safari/iOS HLS."
+
+hls_max_buffer_length_seconds:
+  default: 24
+  type: integer
+  min: 6
+  max: 120
+  description:
+    en: "Target forward buffer length for hls.js, in seconds. Lower values reduce prefetching but may increase buffering on slow networks."
+    nl: "Doel voor vooruitbuffer van hls.js, in seconden. Lagere waarden verminderen prefetching maar kunnen meer buffering geven op trage netwerken."
+
+hls_max_max_buffer_length_seconds:
+  default: 60
+  type: integer
+  min: 12
+  max: 300
+  description:
+    en: "Harder forward buffer cap for hls.js, in seconds. Keep below the full length of typical short protected videos."
+    nl: "Hardere vooruitbuffer limiet voor hls.js, in seconden. Houd dit onder de volledige lengte van typische korte beschermde video's."
+
+hls_max_buffer_size_mb:
+  default: 30
+  type: integer
+  min: 4
+  max: 200
+  description:
+    en: "Maximum hls.js buffer size in MB. This prevents low-bitrate videos from being fully prefetched because they fit in a small byte budget."
+    nl: "Maximale hls.js buffer in MB. Dit voorkomt dat low-bitrate video's volledig worden geprefetched omdat ze in een klein bytebudget passen."
+
+hls_back_buffer_length_seconds:
+  default: 30
+  type: integer
+  min: 0
+  max: 300
+  description:
+    en: "How many seconds hls.js may keep behind the current playhead. Lower values reduce retained buffered media after seeking/playback."
+    nl: "Hoeveel seconden hls.js achter de huidige afspeelpositie mag bewaren. Lagere waarden beperken behouden gebufferde media na seek/playback."
