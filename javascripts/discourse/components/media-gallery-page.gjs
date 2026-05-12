@@ -3334,6 +3334,19 @@ export default class MediaGalleryPage extends Component {
     return !!(this.commentsConfig?.can_edit && this.isOwnComment(comment) && !this.commentReported(comment));
   };
 
+  canDeleteComment = (comment) => {
+    if (!comment) return false;
+
+    // The server is the final authority and already allows staff/admin to
+    // remove any comment while regular users can only remove their own. Keep
+    // the frontend aligned with that policy, but tolerate older cached comment
+    // payloads where can_delete may be missing.
+    if (comment.can_delete === true) return true;
+    if (this.isOwnComment(comment)) return true;
+
+    return !!(this.currentUser?.staff || this.currentUser?.admin);
+  };
+
   isEditingComment = (comment) => {
     return !!(comment?.id && Number(comment.id) === Number(this.editingCommentId));
   };
@@ -3702,7 +3715,7 @@ export default class MediaGalleryPage extends Component {
     ev?.stopPropagation?.();
     const publicId = this.previewItem?.public_id;
     const commentId = comment?.id;
-    if (!publicId || !commentId || !comment?.can_delete) return;
+    if (!publicId || !commentId || !this.canDeleteComment(comment)) return;
 
     this.commentsError = "";
 
@@ -6929,7 +6942,7 @@ toggleImageFullscreen(e) {
                                   <div class="hb-media-comment__body">{{comment.body}}</div>
                                 {{/if}}
 
-                                {{#if (or comment.can_delete this.canReportComments (this.canEditComment comment))}}
+                                {{#if (or (this.canDeleteComment comment) this.canReportComments (this.canEditComment comment))}}
                                   <div class="hb-media-comment__actions">
                                     {{#if (this.canReportComment comment)}}
                                       <button
@@ -6954,7 +6967,7 @@ toggleImageFullscreen(e) {
                                       </button>
                                     {{/if}}
 
-                                    {{#if comment.can_delete}}
+                                    {{#if (this.canDeleteComment comment)}}
                                       <button
                                         class="btn btn-small btn-danger hb-media-comment-delete-btn"
                                         type="button"
