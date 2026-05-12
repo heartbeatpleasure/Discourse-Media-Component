@@ -840,6 +840,7 @@ function probeLocalMediaDuration(file, mediaType) {
 
 export default class MediaGalleryPage extends Component {
   @service appEvents;
+  @service router;
   @service currentUser;
   @service siteSettings;
   @service("theme-settings") themeSettings;
@@ -1007,6 +1008,9 @@ export default class MediaGalleryPage extends Component {
   _tagsBrokenByEndpoint = new Map();
   _pendingOpenPublicId = null;
   _pendingOpenCommentId = null;
+  _lastHandledDeepLinkKey = null;
+  _deepLinkOpenPromise = null;
+  _boundRouteDidChange = null;
 
   // Media items from the backend have historically used different keys/values
   // for type (media_type/type/etc). Normalize once to keep templates robust.
@@ -1087,6 +1091,13 @@ export default class MediaGalleryPage extends Component {
     this._boundFullscreenChange = () => this.onFullscreenChange();
     document.addEventListener("fullscreenchange", this._boundFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this._boundFullscreenChange);
+
+    this._boundRouteDidChange = () => this._handleUrlMediaDeepLink({ fromRouteChange: true });
+    try {
+      this.router?.on?.("routeDidChange", this._boundRouteDidChange);
+    } catch {
+      // ignore; direct URL parsing still runs during initial load
+    }
 
     this.restoreStateFromUrl();
     this.initializeMediaGallery();
@@ -1174,6 +1185,15 @@ export default class MediaGalleryPage extends Component {
       document.removeEventListener("fullscreenchange", this._boundFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", this._boundFullscreenChange);
       this._boundFullscreenChange = null;
+    }
+
+    if (this._boundRouteDidChange) {
+      try {
+        this.router?.off?.("routeDidChange", this._boundRouteDidChange);
+      } catch {
+        // ignore
+      }
+      this._boundRouteDidChange = null;
     }
 
     this._stopPreviewOverlayRotation();
@@ -1524,11 +1544,138 @@ export default class MediaGalleryPage extends Component {
         .filter(Boolean)
     );
 
-    const mediaParam = normalizePlainTextForSubmit(params.get("media"), { maxLength: 120, allowNewlines: false });
-    if (mediaParam) {
-      this._pendingOpenPublicId = mediaParam;
-      const commentParam = parseInt(params.get("comment"), 10);
-      this._pendingOpenCommentId = Number.isFinite(commentParam) && commentParam > 0 ? commentParam : null;
+    const deepLink = this._mediaDeepLinkFromParams(params);
+    if (deepLink) {
+      this._setPendingMediaDeepLink(deepLink.publicId, deepLink.commentId);
+    }
+  }
+
+  _searchParamsFromUrlLike(urlLike) {
+    if (!urlLike) return null;
+
+    try {
+      const base = typeof window !== "undefined" ? window.location.origin : "https://example.com";
+      return new URL(String(urlLike), base).searchParams;
+    } catch {
+      return null;
+    }
+  }
+
+  _mediaDeepLinkFromParams(params) {
+    if (!params) return null;
+
+    const publicId = normalizePlainTextForSubmit(params.get("media"), {
+      maxLength: 120,
+      allowNewlines: false,
+    });
+    if (!publicId) return null;
+
+    const rawComment = parseInt(params.get("comment"), 10);
+    const commentId = Number.isFinite(rawComment) && rawComment > 0 ? rawComment : null;
+
+    return { publicId, commentId };
+  }
+
+  _currentMediaDeepLinkFromUrl() {
+    const candidates = [];
+
+    try {
+      const qp = this.router?.currentRoute?.queryParams;
+      if (qp && typeof qp === "object") {
+        const params = new URLSearchParams();
+        if (qp.media) params.set("media", qp.media);
+        if (qp.comment) params.set("comment", qp.comment);
+        candidates.push(params);
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      candidates.push(this._searchParamsFromUrlLike(this.router?.currentURL));
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (typeof window !== "undefined") {
+        candidates.push(this._searchParamsFromUrlLike(window.location.href));
+      }
+    } catch {
+      // ignore
+    }
+
+    for (const params of candidates) {
+      const parsed = this._mediaDeepLinkFromParams(params);
+      if (parsed) return parsed;
+    }
+
+    return null;
+  }
+
+  _setPendingMediaDeepLink(publicId, commentId = null) {
+    const pid = normalizePlainTextForSubmit(publicId, { maxLength: 120, allowNewlines: false });
+    if (!pid) return false;
+
+    const cid = Number(commentId) || null;
+    this._pendingOpenPublicId = pid;
+    this._pendingOpenCommentId = cid && cid > 0 ? cid : null;
+    return true;
+  }
+
+  _deepLinkKey(publicId, commentId = null) {
+    const pid = String(publicId || "").trim();
+    const cid = Number(commentId) || 0;
+    return pid ? `${pid}:${cid > 0 ? cid : ""}` : "";
+  }
+
+  _handleUrlMediaDeepLink({ fromRouteChange = false } = {}) {
+    const link = this._currentMediaDeepLinkFromUrl();
+    if (!link?.publicId) return false;
+
+    const key = this._deepLinkKey(link.publicId, link.commentId);
+    const alreadyOpen =
+      this.previewOpen &&
+      this.previewItem?.public_id === link.publicId &&
+      (!link.commentId || Number(this.highlightedCommentId) === Number(link.commentId));
+
+    if (alreadyOpen && this._lastHandledDeepLinkKey === key) {
+      return true;
+    }
+
+    this._setPendingMediaDeepLink(link.publicId, link.commentId);
+
+    if (this.mediaConfigLoaded && !this.loading) {
+      // Run asynchronously so route/query-param updates can finish first.
+      Promise.resolve().then(() => this._openPendingMediaDeepLink({ fromRouteChange }));
+    }
+
+    return true;
+  }
+
+  _clearMediaDeepLinkFromUrl() {
+    if (typeof window === "undefined" || !window.history?.replaceState) return;
+
+    let url;
+    try {
+      url = new URL(window.location.href);
+    } catch {
+      return;
+    }
+
+    if (!url.searchParams.has("media") && !url.searchParams.has("comment")) return;
+
+    const currentPublicId = String(this.previewItem?.public_id || "").trim();
+    const linkedPublicId = String(url.searchParams.get("media") || "").trim();
+    if (currentPublicId && linkedPublicId && currentPublicId !== linkedPublicId) return;
+
+    url.searchParams.delete("media");
+    url.searchParams.delete("comment");
+
+    const nextUrl = url.pathname + (url.search || "") + (url.hash || "");
+    const currentUrl = window.location.pathname + (window.location.search || "") + (window.location.hash || "");
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, "", nextUrl);
     }
   }
 
@@ -2992,25 +3139,68 @@ export default class MediaGalleryPage extends Component {
 
   async _openPendingMediaDeepLink() {
     const publicId = this._pendingOpenPublicId;
-    if (!publicId || this.previewOpen) return;
+    if (!publicId) return;
 
-    this._pendingOpenPublicId = null;
     const commentId = this._pendingOpenCommentId;
+    const key = this._deepLinkKey(publicId, commentId);
+
+    // Consume the pending values before awaiting, so a failed lookup does not
+    // loop forever. Route changes can set them again with a new key.
+    this._pendingOpenPublicId = null;
     this._pendingOpenCommentId = null;
 
-    let item = (this.items || []).find((entry) => entry?.public_id === publicId);
-
-    if (!item) {
+    if (this._deepLinkOpenPromise) {
       try {
-        item = await ajax(`/media/${publicId}`, { type: "GET" });
-        item = this._decorateItem(item);
+        await this._deepLinkOpenPromise;
       } catch {
-        return;
+        // ignore previous attempt and continue with the latest deep link
       }
     }
 
-    if (item?.public_id) {
-      await this.openPreview(item, { commentId });
+    const run = async () => {
+      if (this.previewOpen && this.previewItem?.public_id === publicId) {
+        if (commentId) {
+          this.previewTab = "comments";
+          await this.loadComments({ reset: true, highlightId: commentId });
+        }
+        this._lastHandledDeepLinkKey = key;
+        return;
+      }
+
+      if (this.previewOpen) {
+        this.closePreview();
+      }
+
+      let item = (this.items || []).find((entry) => entry?.public_id === publicId);
+
+      if (!item) {
+        try {
+          item = await ajax(`/media/${publicId}`, { type: "GET" });
+          item = this._decorateItem(item);
+        } catch (e) {
+          this.noticeMessage = null;
+          this.errorMessage =
+            e?.jqXHR?.responseJSON?.message ||
+            e?.jqXHR?.responseJSON?.error ||
+            e?.message ||
+            I18n.t("media_gallery.errors.not_available");
+          return;
+        }
+      }
+
+      if (item?.public_id) {
+        await this.openPreview(item, { commentId });
+        this._lastHandledDeepLinkKey = key;
+      }
+    };
+
+    this._deepLinkOpenPromise = run();
+    try {
+      await this._deepLinkOpenPromise;
+    } finally {
+      if (this._deepLinkOpenPromise) {
+        this._deepLinkOpenPromise = null;
+      }
     }
   }
 
@@ -5250,6 +5440,7 @@ toggleImageFullscreen(e) {
       // ignore
     }
 
+    this._clearMediaDeepLinkFromUrl();
     this.previewOpen = false;
     this._setPreviewBodyClass(false);
     this.previewItem = null;
@@ -5407,6 +5598,9 @@ toggleImageFullscreen(e) {
 
       // Thumbnails are rendered directly from `thumbnail_url`.
 
+      if (!this._pendingOpenPublicId) {
+        this._handleUrlMediaDeepLink();
+      }
       await this._openPendingMediaDeepLink();
 
       this.schedulePollingIfNeeded();
