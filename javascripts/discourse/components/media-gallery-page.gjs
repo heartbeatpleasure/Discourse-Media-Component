@@ -3085,8 +3085,30 @@ export default class MediaGalleryPage extends Component {
     return comment?.reported_by_current_user === true || comment?._reportedByMe === true;
   }
 
+  isOwnComment(comment) {
+    if (!comment) return false;
+    if (comment.mine === true) return true;
+
+    const currentUserId = Number(this.currentUser?.id);
+    const commentUserId = Number(comment?.user_id || comment?.user?.id);
+    if (Number.isFinite(currentUserId) && Number.isFinite(commentUserId) && currentUserId === commentUserId) {
+      return true;
+    }
+
+    const currentUsername = String(this.currentUser?.username || "").trim().toLowerCase();
+    const commentUsername = String(this.commentAuthorUsername(comment) || "").trim().toLowerCase();
+    return !!(currentUsername && commentUsername && currentUsername === commentUsername);
+  }
+
   canReportComment(comment) {
-    return !!(this.canReportComments && comment?.can_report && !this.commentReported(comment));
+    if (!this.canReportComments || !comment || this.commentReported(comment) || this.isOwnComment(comment)) {
+      return false;
+    }
+
+    // Older/cached API responses may not include can_report yet. In that case
+    // the global config and the own-comment check above are sufficient to show
+    // the action. When the server explicitly returns false, keep it hidden.
+    return comment.can_report !== false;
   }
 
   @action
