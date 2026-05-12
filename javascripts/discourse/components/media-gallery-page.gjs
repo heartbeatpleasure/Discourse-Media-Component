@@ -423,15 +423,23 @@ function mediaCommentAvatarUrl(comment) {
   return url;
 }
 
-function mediaCommentPermalinkUrl(comment, item, commentsConfig) {
-  const direct = normalizeSafeLinkUrl(comment?.comment_url);
+function mediaCommentPermalinkUrl(comment, item = null, commentsConfig = null) {
+  const direct = normalizeSafeLinkUrl(comment?.comment_url || comment?._comment_url);
   if (direct) return direct;
 
-  const publicId = String(item?.public_id || "").trim();
+  const publicId = String(
+    comment?.media_public_id ||
+      comment?._media_public_id ||
+      item?.public_id ||
+      ""
+  ).trim();
   const commentId = parseInt(comment?.id, 10);
   if (!publicId || !Number.isFinite(commentId) || commentId <= 0) return "#";
 
-  const path = normalizeSameSitePath(commentsConfig?.deep_link_path, "/media-library");
+  const path = normalizeSameSitePath(
+    comment?.deep_link_path || comment?._deep_link_path || commentsConfig?.deep_link_path,
+    "/media-library"
+  );
   const params = new URLSearchParams();
   params.set("media", publicId);
   params.set("comment", String(commentId));
@@ -2866,7 +2874,27 @@ export default class MediaGalleryPage extends Component {
   }
 
   commentPermalinkUrl(comment) {
-    return mediaCommentPermalinkUrl(comment, this.previewItem, this.commentsConfig);
+    return mediaCommentPermalinkUrl(comment);
+  }
+
+  _normalizePreviewComment(comment, publicId) {
+    if (!comment || typeof comment !== "object") return comment;
+
+    const withContext = {
+      ...comment,
+      _media_public_id: publicId,
+      _deep_link_path: this.commentsConfig?.deep_link_path,
+    };
+
+    if (!withContext.comment_url) {
+      withContext.comment_url = mediaCommentPermalinkUrl(withContext);
+    }
+
+    return withContext;
+  }
+
+  _normalizePreviewComments(comments, publicId) {
+    return (comments || []).map((comment) => this._normalizePreviewComment(comment, publicId));
   }
 
   formatCommentCreatedAt(iso) {
@@ -2914,7 +2942,10 @@ export default class MediaGalleryPage extends Component {
       }
 
       const res = await ajax(`/media/${publicId}/comments`, { type: "GET", data });
-      const incoming = Array.isArray(res?.comments) ? res.comments : [];
+      const incoming = this._normalizePreviewComments(
+        Array.isArray(res?.comments) ? res.comments : [],
+        publicId
+      );
 
       this.comments = reset ? incoming : this._mergeComments(incoming, this.comments);
       this.commentsLoaded = true;
@@ -2991,9 +3022,10 @@ export default class MediaGalleryPage extends Component {
     try {
       const res = await ajax(`/media/${publicId}/comments`, { type: "POST", data: { body } });
       if (res?.comment) {
-        this.comments = this._mergeComments(this.comments, [res.comment]);
+        const comment = this._normalizePreviewComment(res.comment, publicId);
+        this.comments = this._mergeComments(this.comments, [comment]);
         this.commentsLoaded = true;
-        this.highlightedCommentId = Number(res.comment.id);
+        this.highlightedCommentId = Number(comment.id);
       }
       this.commentBody = "";
       this._syncCommentsCount(publicId, res?.comments_count, res?.last_commented_at);
