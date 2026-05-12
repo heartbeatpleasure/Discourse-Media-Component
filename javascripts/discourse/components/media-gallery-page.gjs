@@ -48,6 +48,18 @@ function normalizeSafeLinkUrl(raw) {
   return null;
 }
 
+
+function normalizeSameSitePath(raw, fallback = "/media-library") {
+  const str = String(raw || "").trim();
+  if (!str) return fallback;
+  if (/[\u0000-\u001F\u007F]/.test(str)) return fallback;
+  if (!str.startsWith("/") || str.startsWith("//")) return fallback;
+  if (str.includes("?") || str.includes("#")) return fallback;
+
+  const normalized = str.replace(/\/+$/, "");
+  return normalized || fallback;
+}
+
 function normalizeAbsoluteHttpUrl(raw) {
   const str = String(raw || "").trim();
   if (!str || /[\u0000-\u001F\u007F]/.test(str)) return null;
@@ -358,6 +370,7 @@ function normalizeCommentsPayload(raw) {
       can_comment: false,
       page_size: DEFAULT_COMMENTS_PAGE_SIZE,
       max_length: DEFAULT_COMMENT_MAX_LENGTH,
+      deep_link_path: "/media-library",
     };
   }
 
@@ -374,6 +387,7 @@ function normalizeCommentsPayload(raw) {
       min: 50,
       max: 5000,
     }),
+    deep_link_path: normalizeSameSitePath(raw.deep_link_path, "/media-library"),
   };
 }
 
@@ -407,6 +421,30 @@ function mediaCommentAvatarUrl(comment) {
     return `${protocol}${url}`;
   }
   return url;
+}
+
+function mediaCommentPermalinkUrl(comment, item, commentsConfig) {
+  const direct = normalizeSafeLinkUrl(comment?.comment_url);
+  if (direct) return direct;
+
+  const publicId = String(item?.public_id || "").trim();
+  const commentId = parseInt(comment?.id, 10);
+  if (!publicId || !Number.isFinite(commentId) || commentId <= 0) return "#";
+
+  const path = normalizeSameSitePath(commentsConfig?.deep_link_path, "/media-library");
+  const params = new URLSearchParams();
+  params.set("media", publicId);
+  params.set("comment", String(commentId));
+
+  try {
+    if (typeof window !== "undefined") {
+      return `${window.location.origin}${path}?${params.toString()}`;
+    }
+  } catch {
+    // ignore and use same-site relative URL below
+  }
+
+  return `${path}?${params.toString()}`;
 }
 
 function displayAccessGroupName(group) {
@@ -810,7 +848,7 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadPolicy = null;
   @tracked permissions = null;
   @tracked reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
-  @tracked commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH };
+  @tracked commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library" };
   @tracked mediaConfigLoaded = false;
   @tracked uploadWatermarkEnabled = true;
   @tracked uploadWatermarkPresetId = "";
@@ -2827,6 +2865,10 @@ export default class MediaGalleryPage extends Component {
     return mediaCommentAvatarUrl(comment);
   }
 
+  commentPermalinkUrl(comment) {
+    return mediaCommentPermalinkUrl(comment, this.previewItem, this.commentsConfig);
+  }
+
   formatCommentCreatedAt(iso) {
     return formatDateShort(iso);
   }
@@ -2865,7 +2907,11 @@ export default class MediaGalleryPage extends Component {
     try {
       const data = {};
       const cursor = beforeId || (!reset ? this.commentsBeforeId : null);
-      if (cursor) data.before_id = cursor;
+      if (highlightId && reset) {
+        data.comment_id = Number(highlightId);
+      } else if (cursor) {
+        data.before_id = cursor;
+      }
 
       const res = await ajax(`/media/${publicId}/comments`, { type: "GET", data });
       const incoming = Array.isArray(res?.comments) ? res.comments : [];
@@ -2877,14 +2923,19 @@ export default class MediaGalleryPage extends Component {
       this._syncCommentsCount(publicId, res?.comments_count ?? res?.total);
 
       if (highlightId) {
-        this.highlightedCommentId = Number(highlightId);
-        setTimeout(() => {
-          try {
-            document.querySelector(`[data-hb-comment-id="${Number(highlightId)}"]`)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-          } catch {
-            // ignore
-          }
-        }, 100);
+        if (res?.comment_found === false) {
+          this.highlightedCommentId = null;
+          this.commentsError = I18n.t("media_gallery.comment_deeplink_not_found");
+        } else {
+          this.highlightedCommentId = Number(res?.focused_comment_id || highlightId);
+          setTimeout(() => {
+            try {
+              document.querySelector(`[data-hb-comment-id="${Number(this.highlightedCommentId)}"]`)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+            } catch {
+              // ignore
+            }
+          }, 100);
+        }
       }
     } catch (e) {
       this.commentsError =
@@ -6002,7 +6053,12 @@ toggleImageFullscreen(e) {
                               class={{concat "hb-media-comment " (if (eq this.highlightedCommentId comment.id) "is-highlighted" "")}}
                               data-hb-comment-id={{comment.id}}
                             >
-                              <a class="hb-media-comment__avatar" href={{this.commentProfileUrl comment}}>
+                              <a
+                                class="hb-media-comment__avatar trigger-user-card"
+                                href={{this.commentProfileUrl comment}}
+                                data-user-card={{this.commentAuthorUsername comment}}
+                                title={{this.commentAuthorUsername comment}}
+                              >
                                 {{#if (this.commentAvatarUrl comment)}}
                                   <img alt="" src={{this.commentAvatarUrl comment}} loading="lazy" decoding="async" />
                                 {{else}}
@@ -6012,7 +6068,11 @@ toggleImageFullscreen(e) {
 
                               <div class="hb-media-comment__content">
                                 <div class="hb-media-comment__meta">
-                                  <a class="hb-media-comment__user" href={{this.commentProfileUrl comment}}>
+                                  <a
+                                    class="hb-media-comment__user trigger-user-card"
+                                    href={{this.commentProfileUrl comment}}
+                                    data-user-card={{this.commentAuthorUsername comment}}
+                                  >
                                     {{this.commentAuthorUsername comment}}
                                   </a>
                                   {{#if comment.owner_comment}}
@@ -6022,6 +6082,9 @@ toggleImageFullscreen(e) {
                                     <span class="hb-media-comment__badge">{{i18n "media_gallery.staff_badge"}}</span>
                                   {{/if}}
                                   <span class="hb-media-comment__date">{{this.formatCommentCreatedAt comment.created_at}}</span>
+                                  <a class="hb-media-comment__permalink" href={{this.commentPermalinkUrl comment}} title={{i18n "media_gallery.comment_permalink_title"}}>
+                                    {{i18n "media_gallery.comment_permalink"}}
+                                  </a>
                                 </div>
 
                                 <div class="hb-media-comment__body">{{comment.body}}</div>

@@ -1685,6 +1685,18 @@
     font-weight: 800;
   }
 
+  .hb-media-comment__permalink {
+    color: var(--primary-medium);
+    font-size: var(--font-down-2);
+    text-decoration: none;
+
+    &:hover,
+    &:focus {
+      color: var(--primary);
+      text-decoration: underline;
+    }
+  }
+
   .hb-media-comment__badge {
     border-radius: 999px;
     background: var(--primary-very-low);
