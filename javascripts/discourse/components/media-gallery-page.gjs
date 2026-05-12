@@ -812,6 +812,7 @@ function probeLocalMediaDuration(file, mediaType) {
 }
 
 export default class MediaGalleryPage extends Component {
+  @service appEvents;
   @service currentUser;
   @service siteSettings;
   @service("theme-settings") themeSettings;
@@ -2881,16 +2882,23 @@ export default class MediaGalleryPage extends Component {
   handleCommentAuthorClick(comment, event) {
     if (!comment || !event) return;
 
-    // Keep normal profile-link behavior for modified clicks / new-tab actions,
-    // but prevent the plain click navigation so Discourse's delegated
-    // `data-user-card` handler can open the native user-card overlay.
+    // Keep normal profile-link behavior for modified clicks / new-tab actions.
     if (event.button && event.button !== 0) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 
     const username = this.commentAuthorUsername(comment);
-    if (username && username !== "unknown") {
-      event.preventDefault?.();
-    }
+    if (!username || username === "unknown") return;
+
+    const target = event.currentTarget || event.target?.closest?.("[data-user-card]");
+    if (!target || !this.appEvents?.trigger) return;
+
+    // The media preview is a custom overlay, so Discourse's delegated
+    // card-click listener is not always attached to the comment DOM. Trigger
+    // the native user-card entry point directly, while keeping modified clicks
+    // as normal profile-link navigation.
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    this.appEvents.trigger("topic-header:trigger-user-card", username, target, event);
   }
 
   _normalizePreviewComment(comment, publicId) {
