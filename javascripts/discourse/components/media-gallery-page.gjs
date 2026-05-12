@@ -1138,6 +1138,15 @@ export default class MediaGalleryPage extends Component {
 
     this._stopPreviewOverlayRotation();
     this._stopPreviewIdleRevokeTimer();
+    this._setPreviewBodyClass(false);
+  }
+
+  _setPreviewBodyClass(enabled) {
+    try {
+      document.body?.classList?.toggle("hb-media-preview-open", Boolean(enabled));
+    } catch {
+      // ignore
+    }
   }
 
   get isMine() {
@@ -4731,6 +4740,7 @@ toggleImageFullscreen(e) {
     const requestedCommentId = Number(options.commentId) || null;
     const mt = this._normalizeMediaType(item.media_type || item.type || item.mediaType);
 
+    this._setPreviewBodyClass(true);
     this.previewOpen = true;
     this.previewItem = item;
     this.previewStreamUrl = null;
@@ -4855,6 +4865,7 @@ toggleImageFullscreen(e) {
     }
 
     this.previewOpen = false;
+    this._setPreviewBodyClass(false);
     this.previewItem = null;
     this.previewStreamUrl = null;
     this.previewLoading = false;

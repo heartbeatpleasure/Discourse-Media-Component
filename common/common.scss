@@ -1845,3 +1845,18 @@
   font-size: 0.875em;
   opacity: 0.75;
 }
+
+/*
+  Discourse user-cards are rendered outside the media preview overlay.
+  When opened from a comment author inside the preview, keep the native card above
+  the media modal backdrop instead of behind the dimmed page.
+*/
+body.hb-media-preview-open {
+  #user-card,
+  #group-card,
+  .user-card,
+  .group-card,
+  .card-content {
+    z-index: 10010 !important;
+  }
+}
