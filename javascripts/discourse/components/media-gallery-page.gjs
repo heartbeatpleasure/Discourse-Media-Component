@@ -170,9 +170,11 @@ const MAX_LIBRARY_NOTICE_BODY_LENGTH = 600;
 const MAX_LIBRARY_NOTICE_LINK_TEXT_LENGTH = 80;
 const MAX_ACCESS_MESSAGE_TITLE_LENGTH = 160;
 const MAX_ACCESS_MESSAGE_BODY_LENGTH = 700;
+const DEFAULT_COMMENTS_PAGE_SIZE = 20;
+const DEFAULT_COMMENT_MAX_LENGTH = 1000;
 
 const DEFAULT_SORT_BY = "newest";
-const SORT_VALUES = ["newest", "oldest", "title_asc", "title_desc", "most_liked", "most_viewed"];
+const SORT_VALUES = ["newest", "oldest", "title_asc", "title_desc", "most_liked", "most_viewed", "most_commented"];
 const MEDIA_TYPE_FILTER_VALUES = ["", "image", "video", "audio"];
 const GENDER_FILTER_VALUES = ["", "male", "female", "both", "non_binary", "objects", "other"];
 const STATUS_FILTER_VALUES = ["", "queued", "processing", "ready", "failed"];
@@ -346,6 +348,32 @@ function normalizeReportsPayload(raw) {
   return {
     enabled: raw.enabled === true,
     reasons: reasons.length ? reasons : REPORT_REASON_FALLBACKS,
+  };
+}
+
+function normalizeCommentsPayload(raw) {
+  if (!raw || typeof raw !== "object") {
+    return {
+      enabled: false,
+      can_comment: false,
+      page_size: DEFAULT_COMMENTS_PAGE_SIZE,
+      max_length: DEFAULT_COMMENT_MAX_LENGTH,
+    };
+  }
+
+  return {
+    enabled: raw.enabled === true,
+    can_comment: raw.can_comment !== false,
+    page_size: parseBoundedInteger(raw.page_size, {
+      defaultValue: DEFAULT_COMMENTS_PAGE_SIZE,
+      min: 5,
+      max: 100,
+    }),
+    max_length: parseBoundedInteger(raw.max_length, {
+      defaultValue: DEFAULT_COMMENT_MAX_LENGTH,
+      min: 50,
+      max: 5000,
+    }),
   };
 }
 
@@ -750,6 +778,7 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadPolicy = null;
   @tracked permissions = null;
   @tracked reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
+  @tracked commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH };
   @tracked mediaConfigLoaded = false;
   @tracked uploadWatermarkEnabled = true;
   @tracked uploadWatermarkPresetId = "";
@@ -787,6 +816,18 @@ export default class MediaGalleryPage extends Component {
   @tracked previewPseudoFullscreen = false;
   @tracked previewOverlay = null;
   @tracked previewOverlayPositionIndex = 0;
+  @tracked previewTab = "details";
+
+  // Comments panel
+  @tracked comments = [];
+  @tracked commentsLoaded = false;
+  @tracked commentsLoading = false;
+  @tracked commentsHasMoreBefore = false;
+  @tracked commentsBeforeId = null;
+  @tracked commentsError = "";
+  @tracked commentBody = "";
+  @tracked commentSubmitting = false;
+  @tracked highlightedCommentId = null;
 
   // Report modal
   @tracked reportOpen = false;
@@ -856,6 +897,8 @@ export default class MediaGalleryPage extends Component {
   // Some endpoints may 500 when receiving a tags parameter. Track per endpoint
   // to avoid repeated failing requests (and noisy console/network errors).
   _tagsBrokenByEndpoint = new Map();
+  _pendingOpenPublicId = null;
+  _pendingOpenCommentId = null;
 
   // Media items from the backend have historically used different keys/values
   // for type (media_type/type/etc). Normalize once to keep templates robust.
@@ -953,6 +996,7 @@ export default class MediaGalleryPage extends Component {
       this.uploadPolicy = res?.upload_policy || null;
       this.permissions = normalizePermissionsPayload(res?.permissions);
       this.reportsConfig = normalizeReportsPayload(res?.reports);
+      this.commentsConfig = normalizeCommentsPayload(res?.comments);
 
       // Defaults for the upload UI
       if (this.watermarkConfig?.enabled) {
@@ -968,6 +1012,7 @@ export default class MediaGalleryPage extends Component {
       this.watermarkConfig = null;
       this.uploadPolicy = null;
       this.reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
+      this.commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH };
 
       if (status === 403 || status === 404) {
         this.permissions = {
@@ -1221,6 +1266,13 @@ export default class MediaGalleryPage extends Component {
         .map((t) => normalizeTagValue(t))
         .filter(Boolean)
     );
+
+    const mediaParam = normalizePlainTextForSubmit(params.get("media"), { maxLength: 120, allowNewlines: false });
+    if (mediaParam) {
+      this._pendingOpenPublicId = mediaParam;
+      const commentParam = parseInt(params.get("comment"), 10);
+      this._pendingOpenCommentId = Number.isFinite(commentParam) && commentParam > 0 ? commentParam : null;
+    }
   }
 
   updateUrlState() {
@@ -2662,6 +2714,247 @@ export default class MediaGalleryPage extends Component {
     if (current) {
       current._thumbFailed = true;
       this.items = [...this.items];
+    }
+  }
+
+  // -----------------------
+  // Comments flow
+  // -----------------------
+  _resetPreviewComments() {
+    this.previewTab = "details";
+    this.comments = [];
+    this.commentsLoaded = false;
+    this.commentsLoading = false;
+    this.commentsHasMoreBefore = false;
+    this.commentsBeforeId = null;
+    this.commentsError = "";
+    this.commentBody = "";
+    this.commentSubmitting = false;
+    this.highlightedCommentId = null;
+  }
+
+  async _openPendingMediaDeepLink() {
+    const publicId = this._pendingOpenPublicId;
+    if (!publicId || this.previewOpen) return;
+
+    this._pendingOpenPublicId = null;
+    const commentId = this._pendingOpenCommentId;
+    this._pendingOpenCommentId = null;
+
+    let item = (this.items || []).find((entry) => entry?.public_id === publicId);
+
+    if (!item) {
+      try {
+        item = await ajax(`/media/${publicId}`, { type: "GET" });
+        item = this._decorateItem(item);
+      } catch {
+        return;
+      }
+    }
+
+    if (item?.public_id) {
+      await this.openPreview(item, { commentId });
+    }
+  }
+
+  get commentsEnabled() {
+    return !!(this.canViewMedia && this.commentsConfig?.enabled && this.previewItem?.public_id);
+  }
+
+  get canComment() {
+    return !!(this.commentsEnabled && this.commentsConfig?.can_comment);
+  }
+
+  get commentMaxLength() {
+    return parseBoundedInteger(this.commentsConfig?.max_length, {
+      defaultValue: DEFAULT_COMMENT_MAX_LENGTH,
+      min: 50,
+      max: 5000,
+    });
+  }
+
+  get commentSubmitDisabled() {
+    if (!this.canComment) return true;
+    if (this.commentSubmitting) return true;
+    return !normalizePlainTextForSubmit(this.commentBody, { maxLength: this.commentMaxLength, allowNewlines: true });
+  }
+
+  commentAuthor(comment) {
+    return comment?.user || {};
+  }
+
+  commentAuthorUsername(comment) {
+    return this.cleanUsername(this.commentAuthor(comment)?.username || "unknown");
+  }
+
+  commentProfileUrl(comment) {
+    const raw = this.commentAuthor(comment)?.profile_url;
+    if (raw) return raw;
+    return `/u/${this.commentAuthorUsername(comment)}`;
+  }
+
+  commentAvatarUrl(comment) {
+    const template = this.commentAuthor(comment)?.avatar_template;
+    if (!template) return null;
+
+    let url = String(template).replace("{size}", "45");
+    if (url.startsWith("//")) {
+      const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
+      return `${protocol}${url}`;
+    }
+    return url;
+  }
+
+  formatCommentCreatedAt(iso) {
+    return formatDateShort(iso);
+  }
+
+  _mergeComments(existing, incoming) {
+    const byId = new Map();
+    for (const entry of [...(existing || []), ...(incoming || [])]) {
+      if (!entry?.id) continue;
+      byId.set(Number(entry.id), entry);
+    }
+    return [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id));
+  }
+
+  _syncCommentsCount(publicId, count, lastCommentedAt = undefined) {
+    if (!publicId || count == null) return;
+
+    const updates = { comments_count: Math.max(0, parseInt(count, 10) || 0) };
+    if (lastCommentedAt !== undefined) {
+      updates.last_commented_at = lastCommentedAt;
+    }
+    this._updateItemByPublicId(publicId, updates);
+
+    if (this.previewItem?.public_id === publicId) {
+      this.previewItem = { ...this.previewItem, ...updates };
+    }
+  }
+
+  async loadComments({ reset = false, beforeId = null, highlightId = null } = {}) {
+    const publicId = this.previewItem?.public_id;
+    if (!publicId || !this.commentsEnabled) return;
+    if (this.commentsLoading) return;
+
+    this.commentsLoading = true;
+    this.commentsError = "";
+
+    try {
+      const data = {};
+      const cursor = beforeId || (!reset ? this.commentsBeforeId : null);
+      if (cursor) data.before_id = cursor;
+
+      const res = await ajax(`/media/${publicId}/comments`, { type: "GET", data });
+      const incoming = Array.isArray(res?.comments) ? res.comments : [];
+
+      this.comments = reset ? incoming : this._mergeComments(incoming, this.comments);
+      this.commentsLoaded = true;
+      this.commentsHasMoreBefore = res?.has_more_before === true;
+      this.commentsBeforeId = res?.next_before_id || null;
+      this._syncCommentsCount(publicId, res?.comments_count ?? res?.total);
+
+      if (highlightId) {
+        this.highlightedCommentId = Number(highlightId);
+        setTimeout(() => {
+          try {
+            document.querySelector(`[data-hb-comment-id="${Number(highlightId)}"]`)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+          } catch {
+            // ignore
+          }
+        }, 100);
+      }
+    } catch (e) {
+      this.commentsError =
+        e?.jqXHR?.responseJSON?.message ||
+        e?.jqXHR?.responseJSON?.error ||
+        e?.message ||
+        I18n.t("media_gallery.comment_load_failed");
+    } finally {
+      this.commentsLoading = false;
+    }
+  }
+
+  @action
+  setPreviewTab(tab) {
+    const next = tab === "comments" ? "comments" : "details";
+    this.previewTab = next;
+    if (next === "comments" && !this.commentsLoaded) {
+      this.loadComments({ reset: true });
+    }
+  }
+
+  @action
+  loadEarlierComments() {
+    if (!this.commentsHasMoreBefore || this.commentsLoading) return;
+    this.loadComments({ reset: false, beforeId: this.commentsBeforeId });
+  }
+
+  @action
+  setCommentBody(e) {
+    this.commentBody = normalizePlainTextForTyping(e?.target?.value, {
+      maxLength: this.commentMaxLength,
+      allowNewlines: true,
+    });
+  }
+
+  @action
+  async submitComment() {
+    if (this.commentSubmitDisabled) return;
+
+    const publicId = this.previewItem?.public_id;
+    if (!publicId) return;
+
+    const body = normalizePlainTextForSubmit(this.commentBody, {
+      maxLength: this.commentMaxLength,
+      allowNewlines: true,
+    });
+    if (!body) return;
+
+    this.commentSubmitting = true;
+    this.commentsError = "";
+    this.errorMessage = null;
+
+    try {
+      const res = await ajax(`/media/${publicId}/comments`, { type: "POST", data: { body } });
+      if (res?.comment) {
+        this.comments = this._mergeComments(this.comments, [res.comment]);
+        this.commentsLoaded = true;
+        this.highlightedCommentId = Number(res.comment.id);
+      }
+      this.commentBody = "";
+      this._syncCommentsCount(publicId, res?.comments_count, res?.last_commented_at);
+    } catch (e) {
+      this.commentsError =
+        e?.jqXHR?.responseJSON?.message ||
+        e?.jqXHR?.responseJSON?.error ||
+        e?.message ||
+        I18n.t("media_gallery.comment_failed");
+    } finally {
+      this.commentSubmitting = false;
+    }
+  }
+
+  @action
+  async deleteComment(comment, ev) {
+    ev?.stopPropagation?.();
+    const publicId = this.previewItem?.public_id;
+    const commentId = comment?.id;
+    if (!publicId || !commentId || !comment?.can_delete) return;
+
+    this.commentsError = "";
+
+    try {
+      const res = await ajax(`/media/${publicId}/comments/${commentId}`, { type: "DELETE" });
+      this.comments = (this.comments || []).filter((entry) => Number(entry?.id) !== Number(commentId));
+      this._syncCommentsCount(publicId, res?.comments_count, res?.last_commented_at);
+      this.noticeMessage = I18n.t("media_gallery.comment_deleted");
+    } catch (e) {
+      this.commentsError =
+        e?.jqXHR?.responseJSON?.message ||
+        e?.jqXHR?.responseJSON?.error ||
+        e?.message ||
+        I18n.t("media_gallery.comment_delete_failed");
     }
   }
 
@@ -4301,10 +4594,12 @@ toggleImageFullscreen(e) {
   }
 
   @action
-  async openPreview(item) {
+  async openPreview(item, evOrOptions = null) {
     if (!item?.public_id) return;
     if (item.playable === false) return;
 
+    const options = evOrOptions && typeof evOrOptions === "object" && !evOrOptions.target ? evOrOptions : {};
+    const requestedCommentId = Number(options.commentId) || null;
     const mt = this._normalizeMediaType(item.media_type || item.type || item.mediaType);
 
     this.previewOpen = true;
@@ -4332,6 +4627,11 @@ toggleImageFullscreen(e) {
     this.previewPseudoFullscreen = false;
     this.previewOverlay = null;
     this.previewOverlayPositionIndex = 0;
+    this._resetPreviewComments();
+    if (requestedCommentId) {
+      this.previewTab = "comments";
+      this.highlightedCommentId = requestedCommentId;
+    }
     this._stopPreviewOverlayRotation();
     this._stopPreviewIdleRevokeTimer();
     this._previewIdleResumeTime = null;
@@ -4383,6 +4683,10 @@ toggleImageFullscreen(e) {
       // For audio/video: show the player instantly, token will be requested on Play.
       this.previewLoading = false;
       this._schedulePreviewMeasure();
+    }
+
+    if (requestedCommentId && this.commentsConfig.enabled) {
+      await this.loadComments({ reset: true, highlightId: requestedCommentId });
     }
   }
 
@@ -4442,6 +4746,7 @@ toggleImageFullscreen(e) {
     this._previewPlayerEl = null;
     this.previewOverlay = null;
     this.previewOverlayPositionIndex = 0;
+    this._resetPreviewComments();
     this._stopPreviewOverlayRotation();
     this._stopPreviewIdleRevokeTimer();
     this._previewIdleResumeTime = null;
@@ -4575,6 +4880,8 @@ toggleImageFullscreen(e) {
       this.total = total;
 
       // Thumbnails are rendered directly from `thumbnail_url`.
+
+      await this._openPendingMediaDeepLink();
 
       this.schedulePollingIfNeeded();
     } catch (e) {
@@ -5011,6 +5318,7 @@ toggleImageFullscreen(e) {
             <option value="title_desc" selected={{eq this.normalizedSortBy "title_desc"}}>Title Z-A</option>
             <option value="most_liked" selected={{eq this.normalizedSortBy "most_liked"}}>Most liked</option>
             <option value="most_viewed" selected={{eq this.normalizedSortBy "most_viewed"}}>Most viewed</option>
+            <option value="most_commented" selected={{eq this.normalizedSortBy "most_commented"}}>Most commented</option>
           </select>
         </div>
 
@@ -5174,6 +5482,11 @@ toggleImageFullscreen(e) {
 
                   <span class="hb-media-library-row__sep">·</span>
                   <span class="hb-media-library-row__metaItem">{{item.views_count}} {{i18n "media_gallery.views"}}</span>
+
+                  {{#if this.commentsConfig.enabled}}
+                    <span class="hb-media-library-row__sep">·</span>
+                    <span class="hb-media-library-row__metaItem">{{or item.comments_count 0}} {{i18n "media_gallery.comments_count"}}</span>
+                  {{/if}}
                 </div>
 
                 {{#if item.description}}
@@ -5583,6 +5896,13 @@ toggleImageFullscreen(e) {
                         {{icon "eye"}}
                         {{this.previewItem.views_count}} {{i18n "media_gallery.views"}}
                       </span>
+
+                      {{#if this.commentsConfig.enabled}}
+                        <span class="hb-media-preview__metaItem">
+                          {{icon "comment"}}
+                          {{or this.previewItem.comments_count 0}} {{i18n "media_gallery.comments_count"}}
+                        </span>
+                      {{/if}}
                     </div>
 
                     {{#if (or this.previewItem.gender this.previewItem.tags (and this.isMine this.previewItem.status))}}
@@ -5611,8 +5931,132 @@ toggleImageFullscreen(e) {
                     {{/if}}
                   </div>
 
-                  {{#if this.previewItem.description}}
-                    <div class="hb-media-preview__description">{{this.previewItem.description}}</div>
+                  {{#if this.commentsEnabled}}
+                    <div class="hb-media-preview__tabs" role="tablist" aria-label="Media details and comments">
+                      <button
+                        class={{concat "hb-media-preview__tab " (if (eq this.previewTab "details") "is-active" "")}}
+                        type="button"
+                        aria-selected={{eq this.previewTab "details"}}
+                        {{on "click" (fn this.setPreviewTab "details")}}
+                      >
+                        Details
+                      </button>
+                      <button
+                        class={{concat "hb-media-preview__tab " (if (eq this.previewTab "comments") "is-active" "")}}
+                        type="button"
+                        aria-selected={{eq this.previewTab "comments"}}
+                        {{on "click" (fn this.setPreviewTab "comments")}}
+                      >
+                        {{i18n "media_gallery.comments"}} ({{or this.previewItem.comments_count 0}})
+                      </button>
+                    </div>
+                  {{/if}}
+
+                  {{#if (eq this.previewTab "comments")}}
+                    <div class="hb-media-comments">
+                      {{#if this.commentsError}}
+                        <div class="hb-media-comments__error">{{this.commentsError}}</div>
+                      {{/if}}
+
+                      <div class="hb-media-comments__list">
+                        {{#if this.commentsLoading}}
+                          <div class="hb-media-comments__loading">{{i18n "media_gallery.comments_loading"}}</div>
+                        {{/if}}
+
+                        {{#if this.commentsHasMoreBefore}}
+                          <button
+                            class="btn btn-small btn-default hb-media-comments__loadEarlier"
+                            type="button"
+                            disabled={{this.commentsLoading}}
+                            {{on "click" this.loadEarlierComments}}
+                          >
+                            {{i18n "media_gallery.comments_load_earlier"}}
+                          </button>
+                        {{/if}}
+
+                        {{#if (gt this.comments.length 0)}}
+                          {{#each this.comments key="id" as |comment|}}
+                            <article
+                              class={{concat "hb-media-comment " (if (eq this.highlightedCommentId comment.id) "is-highlighted" "")}}
+                              data-hb-comment-id={{comment.id}}
+                            >
+                              <a class="hb-media-comment__avatar" href={{this.commentProfileUrl comment}}>
+                                {{#if (this.commentAvatarUrl comment)}}
+                                  <img alt="" src={{this.commentAvatarUrl comment}} loading="lazy" decoding="async" />
+                                {{else}}
+                                  {{icon "user"}}
+                                {{/if}}
+                              </a>
+
+                              <div class="hb-media-comment__content">
+                                <div class="hb-media-comment__meta">
+                                  <a class="hb-media-comment__user" href={{this.commentProfileUrl comment}}>
+                                    {{this.commentAuthorUsername comment}}
+                                  </a>
+                                  {{#if comment.owner_comment}}
+                                    <span class="hb-media-comment__badge">{{i18n "media_gallery.owner_badge"}}</span>
+                                  {{/if}}
+                                  {{#if comment.staff_comment}}
+                                    <span class="hb-media-comment__badge">{{i18n "media_gallery.staff_badge"}}</span>
+                                  {{/if}}
+                                  <span class="hb-media-comment__date">{{this.formatCommentCreatedAt comment.created_at}}</span>
+                                </div>
+
+                                <div class="hb-media-comment__body">{{comment.body}}</div>
+
+                                {{#if comment.can_delete}}
+                                  <div class="hb-media-comment__actions">
+                                    <button
+                                      class="btn btn-small btn-default"
+                                      type="button"
+                                      title={{i18n "media_gallery.comment_delete"}}
+                                      {{on "click" (fn this.deleteComment comment)}}
+                                    >
+                                      {{i18n "media_gallery.comment_delete"}}
+                                    </button>
+                                  </div>
+                                {{/if}}
+                              </div>
+                            </article>
+                          {{/each}}
+                        {{else if this.commentsLoaded}}
+                          <div class="hb-media-comments__empty">{{i18n "media_gallery.comments_empty"}}</div>
+                        {{/if}}
+                      </div>
+
+                      {{#if this.canComment}}
+                        <div class="hb-media-comments__composer">
+                          <textarea
+                            value={{this.commentBody}}
+                            maxlength={{this.commentMaxLength}}
+                            placeholder={{i18n "media_gallery.comment_placeholder"}}
+                            disabled={{this.commentSubmitting}}
+                            {{on "input" this.setCommentBody}}
+                          ></textarea>
+                          <div class="hb-media-comments__composerFooter">
+                            <span class="hb-media-comments__counter">{{this.commentBody.length}} / {{this.commentMaxLength}}</span>
+                            <button
+                              class="btn btn-primary"
+                              type="button"
+                              disabled={{this.commentSubmitDisabled}}
+                              {{on "click" this.submitComment}}
+                            >
+                              {{#if this.commentSubmitting}}
+                                {{i18n "media_gallery.comment_submitting"}}
+                              {{else}}
+                                {{i18n "media_gallery.comment_submit"}}
+                              {{/if}}
+                            </button>
+                          </div>
+                        </div>
+                      {{/if}}
+                    </div>
+                  {{else}}
+                    {{#if this.previewItem.description}}
+                      <div class="hb-media-preview__description">{{this.previewItem.description}}</div>
+                    {{else}}
+                      <div class="hb-media-preview__description hb-media-preview__description--empty">{{i18n "media_gallery.no_description"}}</div>
+                    {{/if}}
                   {{/if}}
 
                   <div class="hb-media-preview__panelFooter">
