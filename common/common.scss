@@ -1713,6 +1713,38 @@
     line-height: 1.45;
   }
 
+  .hb-media-comment__edited {
+    color: var(--primary-medium);
+    font-size: var(--font-down-2);
+    font-style: italic;
+  }
+
+  .hb-media-comment__editBox {
+    margin-top: 0.45rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+
+    textarea {
+      width: 100%;
+      min-height: 70px;
+      resize: vertical;
+    }
+  }
+
+  .hb-media-comment__editFooter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+
+  .hb-media-comment__editActions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
   .hb-media-comment__actions {
     margin-top: 0.45rem;
     display: flex;

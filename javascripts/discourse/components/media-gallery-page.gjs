@@ -184,6 +184,7 @@ const MAX_ACCESS_MESSAGE_TITLE_LENGTH = 160;
 const MAX_ACCESS_MESSAGE_BODY_LENGTH = 700;
 const DEFAULT_COMMENTS_PAGE_SIZE = 20;
 const DEFAULT_COMMENT_MAX_LENGTH = 1000;
+const DEFAULT_COMMENT_EDIT_WINDOW_MINUTES = 15;
 
 const DEFAULT_SORT_BY = "newest";
 const SORT_VALUES = ["newest", "oldest", "title_asc", "title_desc", "most_liked", "most_viewed", "most_commented"];
@@ -379,6 +380,9 @@ function normalizeCommentsPayload(raw) {
       page_size: DEFAULT_COMMENTS_PAGE_SIZE,
       max_length: DEFAULT_COMMENT_MAX_LENGTH,
       deep_link_path: "/media-library",
+      edit_enabled: false,
+      edit_window_minutes: DEFAULT_COMMENT_EDIT_WINDOW_MINUTES,
+      can_edit: false,
       likes_enabled: false,
       can_like: false,
       reports_enabled: false,
@@ -410,6 +414,13 @@ function normalizeCommentsPayload(raw) {
       max: 5000,
     }),
     deep_link_path: normalizeSameSitePath(raw.deep_link_path, "/media-library"),
+    edit_enabled: raw.edit_enabled === true,
+    edit_window_minutes: parseBoundedInteger(raw.edit_window_minutes, {
+      defaultValue: DEFAULT_COMMENT_EDIT_WINDOW_MINUTES,
+      min: 0,
+      max: 1440,
+    }),
+    can_edit: raw.can_edit === true,
     likes_enabled: raw.likes_enabled === true,
     can_like: raw.can_like === true,
     reports_enabled: raw.reports_enabled === true,
@@ -885,7 +896,7 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadPolicy = null;
   @tracked permissions = null;
   @tracked reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
-  @tracked commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library", likes_enabled: false, can_like: false, reports_enabled: false, can_report: false, report_reasons: COMMENT_REPORT_REASON_FALLBACKS };
+  @tracked commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library", edit_enabled: false, edit_window_minutes: DEFAULT_COMMENT_EDIT_WINDOW_MINUTES, can_edit: false, likes_enabled: false, can_like: false, reports_enabled: false, can_report: false, report_reasons: COMMENT_REPORT_REASON_FALLBACKS };
   @tracked mediaConfigLoaded = false;
   @tracked uploadWatermarkEnabled = true;
   @tracked uploadWatermarkPresetId = "";
@@ -934,6 +945,9 @@ export default class MediaGalleryPage extends Component {
   @tracked commentsError = "";
   @tracked commentBody = "";
   @tracked commentSubmitting = false;
+  @tracked editingCommentId = null;
+  @tracked editingCommentBody = "";
+  @tracked editingCommentSubmitting = false;
   @tracked highlightedCommentId = null;
 
   // Report modal
@@ -1142,7 +1156,7 @@ export default class MediaGalleryPage extends Component {
       this.watermarkConfig = null;
       this.uploadPolicy = null;
       this.reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
-      this.commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library", likes_enabled: false, can_like: false, reports_enabled: false, can_report: false, report_reasons: COMMENT_REPORT_REASON_FALLBACKS };
+      this.commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library", edit_enabled: false, edit_window_minutes: DEFAULT_COMMENT_EDIT_WINDOW_MINUTES, can_edit: false, likes_enabled: false, can_like: false, reports_enabled: false, can_report: false, report_reasons: COMMENT_REPORT_REASON_FALLBACKS };
 
       if (status === 403 || status === 404) {
         this.permissions = {
@@ -3134,6 +3148,9 @@ export default class MediaGalleryPage extends Component {
     this.commentsError = "";
     this.commentBody = "";
     this.commentSubmitting = false;
+    this.editingCommentId = null;
+    this.editingCommentBody = "";
+    this.editingCommentSubmitting = false;
     this.highlightedCommentId = null;
   }
 
@@ -3305,6 +3322,30 @@ export default class MediaGalleryPage extends Component {
     return comment.can_report === true;
   };
 
+  canEditComment = (comment) => {
+    if (!comment || this.editingCommentSubmitting) return false;
+    if (comment.can_edit === false) return false;
+    if (comment.can_edit === true) return true;
+
+    // Tolerate older cached comment payloads, but keep the action limited to
+    // own comments. The server remains authoritative for the exact edit window
+    // and open-report checks.
+    return !!(this.commentsConfig?.can_edit && this.isOwnComment(comment) && !this.commentReported(comment));
+  };
+
+  isEditingComment = (comment) => {
+    return !!(comment?.id && Number(comment.id) === Number(this.editingCommentId));
+  };
+
+  commentEdited = (comment) => {
+    return comment?.edited === true || Number(comment?.edit_count || 0) > 0 || !!comment?.last_edited_at;
+  };
+
+  get commentEditSaveDisabled() {
+    if (this.editingCommentSubmitting) return true;
+    return !normalizePlainTextForSubmit(this.editingCommentBody, { maxLength: this.commentMaxLength, allowNewlines: true });
+  }
+
   @action
   handleCommentAuthorClick(comment, event) {
     if (!comment || !event) return;
@@ -3343,6 +3384,10 @@ export default class MediaGalleryPage extends Component {
       likes_count: Math.max(0, likesCount),
       can_like: comment.can_like === true,
       can_report: comment.can_report === false ? false : comment.can_report === true,
+      can_edit: comment.can_edit === false ? false : comment.can_edit === true,
+      edited: comment.edited === true || comment.edit_count > 0 || !!comment.last_edited_at,
+      last_edited_at: comment.last_edited_at || null,
+      edit_count: parseInt(comment.edit_count || 0, 10) || 0,
       reported_by_current_user: comment.reported_by_current_user === true || comment._reportedByMe === true,
       _reportedByMe: comment.reported_by_current_user === true || comment._reportedByMe === true,
       _media_public_id: publicId,
@@ -3519,6 +3564,82 @@ export default class MediaGalleryPage extends Component {
         I18n.t("media_gallery.comment_failed");
     } finally {
       this.commentSubmitting = false;
+    }
+  }
+
+  @action
+  startEditComment(comment, ev) {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+    if (!this.canEditComment(comment)) return;
+
+    this.editingCommentId = Number(comment.id);
+    this.editingCommentBody = normalizePlainTextForTyping(comment.body || "", {
+      maxLength: this.commentMaxLength,
+      allowNewlines: true,
+    });
+    this.commentsError = "";
+  }
+
+  @action
+  cancelEditComment(ev) {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+    if (this.editingCommentSubmitting) return;
+
+    this.editingCommentId = null;
+    this.editingCommentBody = "";
+  }
+
+  @action
+  setEditingCommentBody(e) {
+    this.editingCommentBody = normalizePlainTextForTyping(e?.target?.value, {
+      maxLength: this.commentMaxLength,
+      allowNewlines: true,
+    });
+  }
+
+  @action
+  async saveEditedComment(comment, ev) {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+
+    const publicId = this.previewItem?.public_id;
+    const commentId = comment?.id;
+    if (!publicId || !commentId || !this.isEditingComment(comment) || this.commentEditSaveDisabled) return;
+
+    const body = normalizePlainTextForSubmit(this.editingCommentBody, {
+      maxLength: this.commentMaxLength,
+      allowNewlines: true,
+    });
+    if (!body) return;
+
+    this.editingCommentSubmitting = true;
+    this.commentsError = "";
+
+    try {
+      const res = await ajax(`/media/${publicId}/comments/${commentId}`, { type: "PATCH", data: { body } });
+      if (res?.comment) {
+        const updated = this._normalizePreviewComment(res.comment, publicId);
+        this._updateCommentById(commentId, updated);
+      } else {
+        this._updateCommentById(commentId, {
+          body,
+          edited: true,
+          edit_count: Number(comment?.edit_count || 0) + 1,
+          last_edited_at: new Date().toISOString(),
+        });
+      }
+      this.editingCommentId = null;
+      this.editingCommentBody = "";
+    } catch (e) {
+      this.commentsError =
+        e?.jqXHR?.responseJSON?.message ||
+        e?.jqXHR?.responseJSON?.error ||
+        e?.message ||
+        I18n.t("media_gallery.comment_edit_failed");
+    } finally {
+      this.editingCommentSubmitting = false;
     }
   }
 
@@ -6731,11 +6852,50 @@ toggleImageFullscreen(e) {
                                     <span class="hb-media-comment__badge">{{i18n "media_gallery.staff_badge"}}</span>
                                   {{/if}}
                                   <span class="hb-media-comment__date">{{this.formatCommentCreatedAt comment.created_at}}</span>
+                                  {{#if (this.commentEdited comment)}}
+                                    <span class="hb-media-comment__edited">{{i18n "media_gallery.comment_edited"}}</span>
+                                  {{/if}}
                                 </div>
 
-                                <div class="hb-media-comment__body">{{comment.body}}</div>
+                                {{#if (this.isEditingComment comment)}}
+                                  <div class="hb-media-comment__editBox">
+                                    <textarea
+                                      value={{this.editingCommentBody}}
+                                      maxlength={{this.commentMaxLength}}
+                                      disabled={{this.editingCommentSubmitting}}
+                                      {{on "input" this.setEditingCommentBody}}
+                                    ></textarea>
+                                    <div class="hb-media-comment__editFooter">
+                                      <span class="hb-media-comments__counter">{{this.editingCommentBody.length}} / {{this.commentMaxLength}}</span>
+                                      <div class="hb-media-comment__editActions">
+                                        <button
+                                          class="btn btn-small btn-primary"
+                                          type="button"
+                                          disabled={{this.commentEditSaveDisabled}}
+                                          {{on "click" (fn this.saveEditedComment comment)}}
+                                        >
+                                          {{#if this.editingCommentSubmitting}}
+                                            {{i18n "media_gallery.comment_editing"}}
+                                          {{else}}
+                                            {{i18n "media_gallery.comment_edit_save"}}
+                                          {{/if}}
+                                        </button>
+                                        <button
+                                          class="btn btn-small btn-default"
+                                          type="button"
+                                          disabled={{this.editingCommentSubmitting}}
+                                          {{on "click" this.cancelEditComment}}
+                                        >
+                                          {{i18n "media_gallery.comment_edit_cancel"}}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                {{else}}
+                                  <div class="hb-media-comment__body">{{comment.body}}</div>
+                                {{/if}}
 
-                                {{#if (or this.commentLikesEnabled comment.can_delete this.canReportComments)}}
+                                {{#if (or this.commentLikesEnabled comment.can_delete this.canReportComments (this.canEditComment comment))}}
                                   <div class="hb-media-comment__actions">
                                     {{#if this.commentLikesEnabled}}
                                       <button
@@ -6760,6 +6920,17 @@ toggleImageFullscreen(e) {
                                       >
                                         {{icon "flag"}}
                                         {{i18n "media_gallery.report_comment"}}
+                                      </button>
+                                    {{/if}}
+
+                                    {{#if (and (this.canEditComment comment) (not (this.isEditingComment comment)))}}
+                                      <button
+                                        class="btn btn-small btn-default"
+                                        type="button"
+                                        title={{i18n "media_gallery.comment_edit"}}
+                                        {{on "click" (fn this.startEditComment comment)}}
+                                      >
+                                        {{i18n "media_gallery.comment_edit"}}
                                       </button>
                                     {{/if}}
 
