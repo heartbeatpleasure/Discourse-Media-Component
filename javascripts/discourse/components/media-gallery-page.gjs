@@ -3081,11 +3081,11 @@ export default class MediaGalleryPage extends Component {
     return Number.isFinite(count) ? Math.max(0, count) : 0;
   }
 
-  commentReported(comment) {
+  commentReported = (comment) => {
     return comment?.reported_by_current_user === true || comment?._reportedByMe === true;
-  }
+  };
 
-  isOwnComment(comment) {
+  isOwnComment = (comment) => {
     if (!comment) return false;
     if (comment.mine === true) return true;
 
@@ -3096,11 +3096,11 @@ export default class MediaGalleryPage extends Component {
     }
 
     const currentUsername = String(this.currentUser?.username || "").trim().toLowerCase();
-    const commentUsername = String(this.commentAuthorUsername(comment) || "").trim().toLowerCase();
+    const commentUsername = String(mediaCommentAuthorUsername(comment) || "").trim().toLowerCase();
     return !!(currentUsername && commentUsername && currentUsername === commentUsername);
-  }
+  };
 
-  canReportComment(comment) {
+  canReportComment = (comment) => {
     if (!comment || this.commentReported(comment) || this.isOwnComment(comment)) {
       return false;
     }
@@ -3113,7 +3113,7 @@ export default class MediaGalleryPage extends Component {
     }
 
     return comment.can_report === true;
-  }
+  };
 
   @action
   handleCommentAuthorClick(comment, event) {
