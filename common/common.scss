@@ -1851,12 +1851,36 @@
   When opened from a comment author inside the preview, keep the native card above
   the media modal backdrop instead of behind the dimmed page.
 */
+html.hb-media-preview-open,
 body.hb-media-preview-open {
+  #d-menu-portals,
+  .d-menu-portals,
+  .fk-d-menu-modal,
+  .fk-d-menu-content,
+  .floating-ui-portal,
+  .ember-basic-dropdown-content,
   #user-card,
   #group-card,
   .user-card,
   .group-card,
-  .card-content {
-    z-index: 10010 !important;
+  .hb-media-native-card-layer {
+    z-index: 2147483000 !important;
+  }
+
+  #user-card,
+  #group-card,
+  .user-card,
+  .group-card,
+  .hb-media-native-card-popup {
+    z-index: 2147483001 !important;
+  }
+
+  #d-menu-portals,
+  .d-menu-portals,
+  .fk-d-menu-modal,
+  .fk-d-menu-content,
+  .floating-ui-portal,
+  .ember-basic-dropdown-content {
+    position: relative;
   }
 }

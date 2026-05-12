@@ -1143,7 +1143,136 @@ export default class MediaGalleryPage extends Component {
 
   _setPreviewBodyClass(enabled) {
     try {
-      document.body?.classList?.toggle("hb-media-preview-open", Boolean(enabled));
+      const active = Boolean(enabled);
+      document.documentElement?.classList?.toggle("hb-media-preview-open", active);
+      document.body?.classList?.toggle("hb-media-preview-open", active);
+
+      if (!active) {
+        this._clearNativeCardLayer();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  _clearNativeCardLayer() {
+    try {
+      if (this._nativeCardLayerObserver) {
+        this._nativeCardLayerObserver.disconnect?.();
+        this._nativeCardLayerObserver = null;
+      }
+
+      if (this._nativeCardLayerTimer) {
+        clearTimeout(this._nativeCardLayerTimer);
+        this._nativeCardLayerTimer = null;
+      }
+
+      document
+        .querySelectorAll(".hb-media-native-card-layer, .hb-media-native-card-popup")
+        .forEach((el) => {
+          el.classList?.remove("hb-media-native-card-layer");
+          el.classList?.remove("hb-media-native-card-popup");
+        });
+    } catch {
+      // ignore
+    }
+  }
+
+  _raiseNativeCardLayer() {
+    const apply = () => {
+      try {
+        const selectors = [
+          "#d-menu-portals",
+          ".d-menu-portals",
+          ".fk-d-menu-modal",
+          ".fk-d-menu-content",
+          ".floating-ui-portal",
+          ".ember-basic-dropdown-content",
+          "#user-card",
+          "#group-card",
+          ".user-card",
+          ".group-card",
+          ".card-contents",
+          ".card-content",
+        ];
+
+        document.querySelectorAll(selectors.join(",")).forEach((el) => {
+          if (!el?.classList) return;
+
+          const isKnownCard =
+            el.id === "user-card" ||
+            el.id === "group-card" ||
+            el.classList.contains("user-card") ||
+            el.classList.contains("group-card") ||
+            Boolean(el.closest?.("#user-card,#group-card,.user-card,.group-card"));
+
+          const looksLikeCardContent =
+            el.classList.contains("card-contents") ||
+            (el.classList.contains("card-content") &&
+              Boolean(
+                el.querySelector?.(
+                  ".user-card-avatar,.user-card-controls,.names,.metadata,.card-row,[data-user-card]"
+                )
+              ));
+
+          const isKnownPortal =
+            el.id === "d-menu-portals" ||
+            el.classList.contains("d-menu-portals") ||
+            el.classList.contains("fk-d-menu-modal") ||
+            el.classList.contains("fk-d-menu-content") ||
+            el.classList.contains("floating-ui-portal") ||
+            el.classList.contains("ember-basic-dropdown-content");
+
+          if (!(isKnownCard || looksLikeCardContent || isKnownPortal)) return;
+
+          el.classList.add("hb-media-native-card-layer");
+          if (isKnownCard || looksLikeCardContent) {
+            el.classList.add("hb-media-native-card-popup");
+          }
+
+          // If the card is rendered in a portal with its own stacking context,
+          // the card's z-index cannot escape that parent. Lift the nearest
+          // portal/menu ancestors as well, but stop before normal page layout.
+          let parent = el.parentElement;
+          while (parent && parent !== document.body && parent !== document.documentElement) {
+            if (
+              parent.id === "d-menu-portals" ||
+              parent.classList?.contains("d-menu-portals") ||
+              parent.classList?.contains("fk-d-menu-modal") ||
+              parent.classList?.contains("fk-d-menu-content") ||
+              parent.classList?.contains("floating-ui-portal") ||
+              parent.classList?.contains("ember-basic-dropdown-content")
+            ) {
+              parent.classList.add("hb-media-native-card-layer");
+            }
+            parent = parent.parentElement;
+          }
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    apply();
+    window.requestAnimationFrame?.(apply);
+    setTimeout(apply, 25);
+    setTimeout(apply, 100);
+    setTimeout(apply, 300);
+
+    try {
+      if (window.MutationObserver && !this._nativeCardLayerObserver) {
+        this._nativeCardLayerObserver = new MutationObserver(apply);
+        this._nativeCardLayerObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+        });
+
+        this._nativeCardLayerTimer = setTimeout(() => {
+          this._nativeCardLayerObserver?.disconnect?.();
+          this._nativeCardLayerObserver = null;
+          this._nativeCardLayerTimer = null;
+        }, 1500);
+      }
     } catch {
       // ignore
     }
@@ -2907,7 +3036,9 @@ export default class MediaGalleryPage extends Component {
     // as normal profile-link navigation.
     event.preventDefault?.();
     event.stopPropagation?.();
+    this._raiseNativeCardLayer();
     this.appEvents.trigger("topic-header:trigger-user-card", username, target, event);
+    this._raiseNativeCardLayer();
   }
 
   _normalizePreviewComment(comment, publicId) {
