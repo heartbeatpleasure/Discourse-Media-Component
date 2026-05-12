@@ -371,6 +371,8 @@ function normalizeCommentsPayload(raw) {
       page_size: DEFAULT_COMMENTS_PAGE_SIZE,
       max_length: DEFAULT_COMMENT_MAX_LENGTH,
       deep_link_path: "/media-library",
+      likes_enabled: false,
+      can_like: false,
     };
   }
 
@@ -388,6 +390,8 @@ function normalizeCommentsPayload(raw) {
       max: 5000,
     }),
     deep_link_path: normalizeSameSitePath(raw.deep_link_path, "/media-library"),
+    likes_enabled: raw.likes_enabled === true,
+    can_like: raw.can_like === true,
   };
 }
 
@@ -2982,6 +2986,14 @@ export default class MediaGalleryPage extends Component {
     return !!(this.commentsEnabled && this.commentsConfig?.can_comment);
   }
 
+  get commentLikesEnabled() {
+    return !!(this.commentsEnabled && this.commentsConfig?.likes_enabled);
+  }
+
+  get canLikeComments() {
+    return !!(this.commentLikesEnabled && this.commentsConfig?.can_like);
+  }
+
   get commentMaxLength() {
     return parseBoundedInteger(this.commentsConfig?.max_length, {
       defaultValue: DEFAULT_COMMENT_MAX_LENGTH,
@@ -3016,6 +3028,15 @@ export default class MediaGalleryPage extends Component {
     return mediaCommentPermalinkUrl(comment);
   }
 
+  commentLiked(comment) {
+    return comment?.liked === true || comment?.liked_by_current_user === true;
+  }
+
+  commentLikesCount(comment) {
+    const count = parseInt(comment?.likes_count || 0, 10);
+    return Number.isFinite(count) ? Math.max(0, count) : 0;
+  }
+
   @action
   handleCommentAuthorClick(comment, event) {
     if (!comment || !event) return;
@@ -3044,8 +3065,15 @@ export default class MediaGalleryPage extends Component {
   _normalizePreviewComment(comment, publicId) {
     if (!comment || typeof comment !== "object") return comment;
 
+    const liked = comment.liked === true || comment.liked_by_current_user === true;
+    const likesCount = parseInt(comment.likes_count || 0, 10) || 0;
+
     const withContext = {
       ...comment,
+      liked,
+      liked_by_current_user: liked,
+      likes_count: Math.max(0, likesCount),
+      can_like: comment.can_like === true,
       _media_public_id: publicId,
       _deep_link_path: this.commentsConfig?.deep_link_path,
     };
@@ -3072,6 +3100,22 @@ export default class MediaGalleryPage extends Component {
       byId.set(Number(entry.id), entry);
     }
     return [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id));
+  }
+
+  _updateCommentById(commentId, updates) {
+    if (!commentId || !Array.isArray(this.comments)) return;
+
+    const id = Number(commentId);
+    let changed = false;
+    const nextComments = this.comments.map((entry) => {
+      if (Number(entry?.id) !== id) return entry;
+      changed = true;
+      return { ...entry, ...updates };
+    });
+
+    if (changed) {
+      this.comments = nextComments;
+    }
   }
 
   _syncCommentsCount(publicId, count, lastCommentedAt = undefined) {
@@ -3201,6 +3245,57 @@ export default class MediaGalleryPage extends Component {
         I18n.t("media_gallery.comment_failed");
     } finally {
       this.commentSubmitting = false;
+    }
+  }
+
+  @action
+  async toggleCommentLike(comment, ev) {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+
+    const publicId = this.previewItem?.public_id;
+    const commentId = comment?.id;
+    if (!publicId || !commentId || !this.commentLikesEnabled) return;
+    if (!comment?.can_like || comment?._likePending) return;
+
+    const wasLiked = this.commentLiked(comment);
+    const wasCount = this.commentLikesCount(comment);
+    const nextLiked = !wasLiked;
+    const nextCount = Math.max(0, wasLiked ? wasCount - 1 : wasCount + 1);
+    const endpoint = wasLiked
+      ? `/media/${publicId}/comments/${commentId}/unlike`
+      : `/media/${publicId}/comments/${commentId}/like`;
+
+    this.commentsError = "";
+    this._updateCommentById(commentId, {
+      liked: nextLiked,
+      liked_by_current_user: nextLiked,
+      likes_count: nextCount,
+      _likePending: true,
+    });
+
+    try {
+      const res = await ajax(endpoint, { type: "POST" });
+      const liked = res?.liked === true;
+      const likesCount = parseInt(res?.likes_count ?? nextCount, 10);
+      this._updateCommentById(commentId, {
+        liked,
+        liked_by_current_user: liked,
+        likes_count: Number.isFinite(likesCount) ? Math.max(0, likesCount) : nextCount,
+        _likePending: false,
+      });
+    } catch (e) {
+      this._updateCommentById(commentId, {
+        liked: wasLiked,
+        liked_by_current_user: wasLiked,
+        likes_count: wasCount,
+        _likePending: false,
+      });
+      this.commentsError =
+        e?.jqXHR?.responseJSON?.message ||
+        e?.jqXHR?.responseJSON?.error ||
+        e?.message ||
+        I18n.t("media_gallery.comment_like_failed");
     }
   }
 
@@ -6286,16 +6381,32 @@ toggleImageFullscreen(e) {
 
                                 <div class="hb-media-comment__body">{{comment.body}}</div>
 
-                                {{#if comment.can_delete}}
+                                {{#if (or this.commentLikesEnabled comment.can_delete)}}
                                   <div class="hb-media-comment__actions">
-                                    <button
-                                      class="btn btn-small btn-default"
-                                      type="button"
-                                      title={{i18n "media_gallery.comment_delete"}}
-                                      {{on "click" (fn this.deleteComment comment)}}
-                                    >
-                                      {{i18n "media_gallery.comment_delete"}}
-                                    </button>
+                                    {{#if this.commentLikesEnabled}}
+                                      <button
+                                        class={{concat "hb-media-like hb-media-comment-like " (if comment.liked "is-liked " "") (if comment._likePending "is-pending" "")}}
+                                        type="button"
+                                        disabled={{or comment._likePending (not comment.can_like)}}
+                                        aria-label={{if comment.liked (i18n "media_gallery.comment_unlike") (i18n "media_gallery.comment_like")}}
+                                        title={{if comment.liked (i18n "media_gallery.comment_unlike") (i18n "media_gallery.comment_like")}}
+                                        {{on "click" (fn this.toggleCommentLike comment)}}
+                                      >
+                                        <span class="hb-media-like__count">{{this.commentLikesCount comment}}</span>
+                                        {{icon (if comment.liked "heart" "far-heart")}}
+                                      </button>
+                                    {{/if}}
+
+                                    {{#if comment.can_delete}}
+                                      <button
+                                        class="btn btn-small btn-default"
+                                        type="button"
+                                        title={{i18n "media_gallery.comment_delete"}}
+                                        {{on "click" (fn this.deleteComment comment)}}
+                                      >
+                                        {{i18n "media_gallery.comment_delete"}}
+                                      </button>
+                                    {{/if}}
                                   </div>
                                 {{/if}}
                               </div>

@@ -1715,6 +1715,15 @@
 
   .hb-media-comment__actions {
     margin-top: 0.45rem;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .hb-media-comment-like {
+    padding: 0.2rem 0.4rem;
+    min-height: 28px;
   }
 
   .hb-media-comments__composer {
