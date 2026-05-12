@@ -826,6 +826,9 @@ export default class MediaGalleryPage extends Component {
   _previewStreamToken = null;
   _previewSecurity = null;
   _previewHeartbeatTimer = null;
+  _previewIdleRevokeTimer = null;
+  _previewIdleRevokeToken = null;
+  _previewIdleResumeTime = null;
   _previewRevokePromise = null;
   _previewOverlayTimer = null;
 
@@ -877,6 +880,7 @@ export default class MediaGalleryPage extends Component {
 
     // Reset playback hardening state
     this._stopPreviewHeartbeat();
+    this._stopPreviewIdleRevokeTimer();
     this._previewSecurity = null;
     this._previewStreamToken = null;
     return { ...item, _hb_media_type: mt };
@@ -1009,6 +1013,7 @@ export default class MediaGalleryPage extends Component {
     }
 
     this._stopPreviewOverlayRotation();
+    this._stopPreviewIdleRevokeTimer();
   }
 
   get isMine() {
@@ -3143,6 +3148,7 @@ onPreviewVideoMeta(e) {
   @action
   onPreviewPlay() {
     this.previewIsPlaying = true;
+    this._stopPreviewIdleRevokeTimer();
     this._resumePreviewHlsLoadingAfterPause();
     this._startPreviewHlsBufferGuardTimer();
     this._enforcePreviewHlsBufferGuard({ forceResume: true });
@@ -3154,6 +3160,7 @@ onPreviewVideoMeta(e) {
     this.previewIsPlaying = false;
     this._stopPreviewHlsLoadingWhilePaused();
     this._stopPreviewHeartbeat();
+    this._startPreviewIdleRevokeTimer();
   }
 
   @action
@@ -3161,6 +3168,7 @@ onPreviewVideoMeta(e) {
     this.previewIsPlaying = false;
     this._stopPreviewHlsBufferGuardTimer();
     this._stopPreviewHeartbeat();
+    this._stopPreviewIdleRevokeTimer();
 
     // Best-effort: revoke the token at the end so it can't be reused for casual downloading.
     this._previewRevokePromise = this._revokePreviewToken();
@@ -3248,6 +3256,8 @@ async togglePreviewPlayback(e) {
     }
     return;
   }
+
+  this._stopPreviewIdleRevokeTimer();
 
   // For audio/video: delay token creation until the user explicitly presses Play.
   if ((mt === "video" || mt === "audio") && !this.previewStreamUrl) {
@@ -3337,6 +3347,8 @@ async togglePreviewPlayback(e) {
       }
     }
   }
+
+  this._restorePreviewIdleResumeTime(el);
 
   try {
     const p = el.play?.();
@@ -3951,6 +3963,7 @@ toggleImageFullscreen(e) {
     }
 
     this._stopPreviewHeartbeat();
+    this._stopPreviewIdleRevokeTimer();
 
     try {
       this._clearPreviewMediaSource();
@@ -4003,6 +4016,98 @@ toggleImageFullscreen(e) {
     return true;
   }
 
+  _idleRevokeOnPauseEnabled() {
+    return this._themeSettingEnabled("idle_revoke_on_pause_enabled", true);
+  }
+
+  _idleRevokePauseSeconds() {
+    return this._themeIntegerSetting("idle_revoke_pause_seconds", {
+      defaultValue: 120,
+      min: 30,
+      max: 900,
+    });
+  }
+
+  _startPreviewIdleRevokeTimer() {
+    this._stopPreviewIdleRevokeTimer();
+    if (!this._idleRevokeOnPauseEnabled()) return;
+    if (!this.previewOpen) return;
+    if (!this._previewStreamToken) return;
+    const el = this._previewMediaEl;
+    if (!el || !el.paused || el.ended) return;
+    const mt = this.previewMediaType;
+    if (mt !== "video" && mt !== "audio") return;
+
+    this._previewIdleRevokeToken = this._previewStreamToken;
+    const delayMs = this._idleRevokePauseSeconds() * 1000;
+    this._previewIdleRevokeTimer = setTimeout(() => {
+      this._previewIdleRevokeTimer = null;
+      this._handlePreviewIdleRevoke(this._previewIdleRevokeToken);
+    }, delayMs);
+  }
+
+  _stopPreviewIdleRevokeTimer() {
+    if (this._previewIdleRevokeTimer) {
+      clearTimeout(this._previewIdleRevokeTimer);
+      this._previewIdleRevokeTimer = null;
+    }
+    this._previewIdleRevokeToken = null;
+  }
+
+  async _handlePreviewIdleRevoke(token) {
+    if (!token || token !== this._previewStreamToken) return;
+    if (!this.previewOpen) return;
+    const el = this._previewMediaEl;
+    if (!el || !el.paused || el.ended) return;
+
+    this._previewIdleResumeTime = Number.isFinite(el.currentTime) ? el.currentTime : null;
+
+    try {
+      this._previewRevokePromise = this._revokePreviewToken();
+      await Promise.race([this._previewRevokePromise, new Promise((resolve) => setTimeout(resolve, 1500))]);
+    } catch {
+      // ignore
+    }
+
+    if (!this.previewOpen || token !== this._previewStreamToken) return;
+
+    try {
+      this._clearPreviewMediaSource();
+    } catch {
+      // ignore
+    }
+
+    this.previewIsPlaying = false;
+    this.previewHasLoadedData = false;
+    this.previewStreamUrl = null;
+    this._previewStreamToken = null;
+    this._previewSecurity = null;
+    this._previewSourceAttached = false;
+    this._previewIsHls = false;
+    this.noticeMessage =
+      this.noticeMessage ||
+      "Playback was paused for a while, so the playback session was reset. Press Play to continue.";
+  }
+
+  _restorePreviewIdleResumeTime(el) {
+    const resume = Number(this._previewIdleResumeTime);
+    if (!Number.isFinite(resume) || resume <= 0 || !el) {
+      this._previewIdleResumeTime = null;
+      return;
+    }
+
+    try {
+      const duration = Number(el.duration);
+      if (!Number.isFinite(duration) || resume < Math.max(0, duration - 0.5)) {
+        el.currentTime = resume;
+      }
+    } catch {
+      // Native HLS may not be seekable immediately; ignore and continue playback.
+    }
+
+    this._previewIdleResumeTime = null;
+  }
+
   async _sendPreviewHeartbeat() {
     if (!this.previewOpen) return;
     if (!this._previewStreamToken) return;
@@ -4011,9 +4116,14 @@ toggleImageFullscreen(e) {
     if (!sec.heartbeat_enabled) return;
 
     try {
+      const el = this._previewMediaEl;
       await ajax("/media/heartbeat", {
         type: "POST",
-        data: { token: this._previewStreamToken },
+        data: {
+          token: this._previewStreamToken,
+          current_time: Number.isFinite(el?.currentTime) ? el.currentTime : undefined,
+          paused: !!el?.paused,
+        },
       });
     } catch (e) {
       const status = e?.jqXHR?.status;
@@ -4223,6 +4333,8 @@ toggleImageFullscreen(e) {
     this.previewOverlay = null;
     this.previewOverlayPositionIndex = 0;
     this._stopPreviewOverlayRotation();
+    this._stopPreviewIdleRevokeTimer();
+    this._previewIdleResumeTime = null;
 
     this._previewMediaEl = null;
     this._previewPlayerEl = null;
@@ -4282,8 +4394,9 @@ toggleImageFullscreen(e) {
       // ignore
     }
 
-    // Stop heartbeat and revoke the current token (best-effort)
+    // Stop heartbeat/idle timers and revoke the current token (best-effort)
     this._stopPreviewHeartbeat();
+    this._stopPreviewIdleRevokeTimer();
     this._previewRevokePromise = this._revokePreviewToken();
     this._previewSecurity = null;
     this._previewStreamToken = null;
@@ -4330,6 +4443,8 @@ toggleImageFullscreen(e) {
     this.previewOverlay = null;
     this.previewOverlayPositionIndex = 0;
     this._stopPreviewOverlayRotation();
+    this._stopPreviewIdleRevokeTimer();
+    this._previewIdleResumeTime = null;
 
     if (this._previewMeasureRaf) {
       cancelAnimationFrame(this._previewMeasureRaf);

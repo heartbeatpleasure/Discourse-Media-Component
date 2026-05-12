@@ -106,3 +106,19 @@ hls_back_buffer_length_seconds:
   description:
     en: "How many seconds hls.js may keep behind the current playhead. Lower values reduce retained buffered media after seeking/playback."
     nl: "Hoeveel seconden hls.js achter de huidige afspeelpositie mag bewaren. Lagere waarden beperken behouden gebufferde media na seek/playback."
+
+idle_revoke_on_pause_enabled:
+  default: true
+  type: bool
+  description:
+    en: "Revoke the current audio/video playback token after the preview player has been paused for a while. The next Play requests a fresh token."
+    nl: "Trek de huidige audio/video afspeeltoken in nadat de preview player een tijdje gepauzeerd is. De volgende Play vraagt een nieuwe token aan."
+
+idle_revoke_pause_seconds:
+  default: 120
+  type: integer
+  min: 30
+  max: 900
+  description:
+    en: "How long the preview player may stay paused before its token is revoked, in seconds. Keep generous for mobile/Safari users."
+    nl: "Hoe lang de preview player gepauzeerd mag blijven voordat de token wordt ingetrokken, in seconden. Houd dit ruim voor mobiele/Safari gebruikers."
