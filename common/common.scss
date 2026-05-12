@@ -942,6 +942,12 @@
 
   .hb-media-library-modal-body--preview {
     padding: 0.75rem 1rem 1rem;
+    overflow: hidden;
+    min-height: 0;
+
+    @media (max-width: 900px) {
+      overflow: auto;
+    }
   }
 
   /* Modern, two-column preview layout (responsive) */
@@ -955,10 +961,13 @@
     align-items: stretch;
     justify-content: start;
     max-width: 100%;
+    min-height: 0;
+    overflow: hidden;
 
     @media (max-width: 900px) {
       --hb-preview-panel-w: 0px;
       grid-template-columns: 1fr;
+      overflow: visible;
     }
   }
 
@@ -968,6 +977,7 @@
     border-radius: 16px;
     padding: 0.5rem;
     min-width: 0;
+    align-self: start;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -1439,17 +1449,25 @@
     }
   }
 
-.hb-media-preview__panel {
+  .hb-media-preview__panel {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
     min-width: 0;
-    height: 100%;
+    height: var(--hb-preview-panel-max-h, 100%);
+    max-height: var(--hb-preview-panel-max-h, calc(var(--hb-media-player-max-h) + 1rem + 2px));
     min-height: 0;
     overflow: hidden;
+
+    @media (max-width: 900px) {
+      height: auto;
+      max-height: none;
+      overflow: visible;
+    }
   }
 
   .hb-media-preview__panelHeader {
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
@@ -1526,6 +1544,7 @@
   }
 
   .hb-media-preview__panelFooter {
+    flex: 0 0 auto;
     margin-top: auto;
     display: flex;
     justify-content: flex-end;
@@ -1565,6 +1584,7 @@
   }
 
   .hb-media-preview__tabs {
+    flex: 0 0 auto;
     display: flex;
     gap: 0.35rem;
     border-bottom: 1px solid var(--primary-low);
@@ -1612,6 +1632,7 @@
     flex-direction: column;
     gap: 0.65rem;
     padding-right: 0.2rem;
+    overscroll-behavior: contain;
   }
 
   .hb-media-comments__loading,
@@ -1746,24 +1767,40 @@
   }
 
   .hb-media-comment__actions {
-    margin-top: 0.45rem;
+    margin-top: 0.5rem;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0.35rem;
+    gap: 0.4rem;
   }
 
   .hb-media-comment-like {
+    order: 100;
+    margin-left: auto;
     padding: 0.2rem 0.4rem;
     min-height: 28px;
   }
 
-  .hb-media-comment-report-btn {
+  .hb-media-comment-report-btn,
+  .hb-media-comment-edit-btn,
+  .hb-media-comment-delete-btn {
     min-height: 28px;
     padding: 0.2rem 0.5rem;
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
+  }
+
+  .hb-media-comment-delete-btn.btn {
+    background: var(--danger-low);
+    border-color: var(--danger-low-mid);
+    color: var(--danger);
+
+    &:hover,
+    &:focus {
+      background: var(--danger-low-mid);
+      color: var(--danger);
+    }
   }
 
   .hb-media-report__comment-preview {
@@ -1778,6 +1815,7 @@
   }
 
   .hb-media-comments__composer {
+    flex: 0 0 auto;
     border-top: 1px solid var(--primary-low);
     padding-top: 0.75rem;
     display: flex;

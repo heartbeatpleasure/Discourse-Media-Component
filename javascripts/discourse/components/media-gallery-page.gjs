@@ -921,6 +921,7 @@ export default class MediaGalleryPage extends Component {
   @tracked previewAspect = null;
   @tracked previewAr = 1;
   @tracked previewPlayerMaxW = null;
+  @tracked previewPanelMaxH = null;
   // True after the first frame has loaded for video/audio. Used to keep the poster visible
   // until playback data is available, preventing a white flash / layout jump.
   @tracked previewHasLoadedData = false;
@@ -3500,6 +3501,7 @@ export default class MediaGalleryPage extends Component {
         I18n.t("media_gallery.comment_load_failed");
     } finally {
       this.commentsLoading = false;
+      this._schedulePreviewMeasure();
     }
   }
 
@@ -3513,6 +3515,7 @@ export default class MediaGalleryPage extends Component {
         this.loadComments({ reset: true });
       }
     }
+    this._schedulePreviewMeasure();
   }
 
   @action
@@ -3994,6 +3997,15 @@ get previewPlayerStyle() {
   return htmlSafe(style);
 }
 
+get previewPanelStyle() {
+  const h = Number(this.previewPanelMaxH);
+  if (!Number.isFinite(h) || h <= 0) {
+    return htmlSafe("");
+  }
+
+  return htmlSafe(`--hb-preview-panel-max-h: ${Math.max(260, Math.floor(h))}px;`);
+}
+
   get previewFullscreenActive() {
     return !!(this.previewIsFullscreen || this.previewPseudoFullscreen);
   }
@@ -4172,6 +4184,20 @@ _setPreviewAspect(width, height) {
 
     if (this.previewPlayerMaxW !== maxW) {
       this.previewPlayerMaxW = maxW;
+    }
+
+    // Keep the right comments/details column tied to the actual media-card height.
+    // Without this, many comments can make the whole modal taller than the video,
+    // leaving a large empty area below the media column. On the mobile single-column
+    // layout we intentionally leave the panel unconstrained so the page can scroll.
+    const mediaRect = mediaEl.getBoundingClientRect();
+    const isTwoColumn = panelEl && panelEl.getBoundingClientRect().width > 0 && availableW < previewRect.width;
+    const nextPanelH = isTwoColumn && mediaRect?.height > 0
+      ? Math.max(260, Math.floor(mediaRect.height))
+      : null;
+
+    if (this.previewPanelMaxH !== nextPanelH) {
+      this.previewPanelMaxH = nextPanelH;
     }
   }
 
@@ -5453,6 +5479,7 @@ toggleImageFullscreen(e) {
     this.previewAspect = null;
     this.previewAr = 1;
     this.previewPlayerMaxW = null;
+    this.previewPanelMaxH = null;
     this.previewHasLoadedData = false;
     this.previewHasLoadedData = false;
     this.previewIsPlaying = false;
@@ -5572,6 +5599,7 @@ toggleImageFullscreen(e) {
     this.previewAspect = null;
     this.previewAr = 1;
     this.previewPlayerMaxW = null;
+    this.previewPanelMaxH = null;
 
     this.previewIsPlaying = false;
     this.previewCurrentTime = 0;
@@ -6703,7 +6731,7 @@ toggleImageFullscreen(e) {
                   </div>
                 </div>
 
-                <div class="hb-media-preview__panel">
+                <div class="hb-media-preview__panel" style={{this.previewPanelStyle}}>
                   <div class="hb-media-preview__panelHeader">
                     <div class="hb-media-preview__titleRow">
                       <div class="hb-media-preview__title">{{this.previewItem.title}}</div>
@@ -6737,13 +6765,6 @@ toggleImageFullscreen(e) {
                         {{icon "eye"}}
                         {{this.previewItem.views_count}} {{i18n "media_gallery.views"}}
                       </span>
-
-                      {{#if this.commentsConfig.enabled}}
-                        <span class="hb-media-preview__metaItem">
-                          {{icon "comment"}}
-                          {{or this.previewItem.comments_count 0}} {{i18n "media_gallery.comments_count"}}
-                        </span>
-                      {{/if}}
                     </div>
 
                     {{#if (or this.previewItem.gender this.previewItem.tags (and this.isMine this.previewItem.status))}}
@@ -6925,7 +6946,7 @@ toggleImageFullscreen(e) {
 
                                     {{#if (and (this.canEditComment comment) (not (this.isEditingComment comment)))}}
                                       <button
-                                        class="btn btn-small btn-default"
+                                        class="btn btn-small btn-default hb-media-comment-edit-btn"
                                         type="button"
                                         title={{i18n "media_gallery.comment_edit"}}
                                         {{on "click" (fn this.startEditComment comment)}}
@@ -6936,7 +6957,7 @@ toggleImageFullscreen(e) {
 
                                     {{#if comment.can_delete}}
                                       <button
-                                        class="btn btn-small btn-default"
+                                        class="btn btn-small btn-danger hb-media-comment-delete-btn"
                                         type="button"
                                         title={{i18n "media_gallery.comment_delete"}}
                                         {{on "click" (fn this.deleteComment comment)}}
