@@ -1003,13 +1003,24 @@ export default class MediaGalleryPage extends Component {
   _decorateItem(item) {
     if (!item || typeof item !== "object") return item;
     const mt = this._normalizeMediaType(item.media_type || item.type || item.mediaType);
+    const status = String(item.status || "").trim().toLowerCase();
+    const hasThumbnail = !!item.thumbnail_url;
+
+    // Public ready media can intentionally omit `status` from the API payload.
+    // The public index already filters to ready media, so use `playable` +
+    // thumbnail presence as a safe display hint. Without this fallback Firefox/
+    // alternate sessions can keep showing the generic "Loading" placeholder even
+    // though the same thumbnail URL is valid and works in the preview overlay.
+    const displayReady =
+      status === "ready" ||
+      (!status && item.playable !== false && (hasThumbnail || mt === "audio"));
 
     // Reset playback hardening state
     this._stopPreviewHeartbeat();
     this._stopPreviewIdleRevokeTimer();
     this._previewSecurity = null;
     this._previewStreamToken = null;
-    return { ...item, _hb_media_type: mt };
+    return { ...item, _hb_media_type: mt, _hb_display_ready: displayReady };
   }
 
   get previewMediaType() {
@@ -5722,10 +5733,10 @@ toggleImageFullscreen(e) {
                 aria-label={{item.title}}
                 {{on "click" (fn this.openPreview item)}}
               >
-                <div class="hb-media-library-row__thumb {{if (or (not (eq item.status "ready")) item._thumbFailed (not item.thumbnail_url)) "hb-media-library-row__thumb--placeholder"}}">
-                  {{#if (and (eq item._hb_media_type "audio") this.audioPlaceholderUrl (eq item.status "ready"))}}
+                <div class="hb-media-library-row__thumb {{if (or (not item._hb_display_ready) item._thumbFailed (not item.thumbnail_url)) "hb-media-library-row__thumb--placeholder"}}">
+                  {{#if (and (eq item._hb_media_type "audio") this.audioPlaceholderUrl item._hb_display_ready)}}
                     <img alt="" src={{this.audioPlaceholderUrl}} loading="lazy" decoding="async" />
-                  {{else if (and (eq item.status "ready") item.thumbnail_url (not item._thumbFailed))}}
+                  {{else if (and item._hb_display_ready item.thumbnail_url (not item._thumbFailed))}}
                     <img
                       alt=""
                       src={{item.thumbnail_url}}
