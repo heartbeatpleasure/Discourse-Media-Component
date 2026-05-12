@@ -3101,14 +3101,18 @@ export default class MediaGalleryPage extends Component {
   }
 
   canReportComment(comment) {
-    if (!this.canReportComments || !comment || this.commentReported(comment) || this.isOwnComment(comment)) {
+    if (!comment || this.commentReported(comment) || this.isOwnComment(comment)) {
       return false;
     }
 
-    // Older/cached API responses may not include can_report yet. In that case
-    // the global config and the own-comment check above are sufficient to show
-    // the action. When the server explicitly returns false, keep it hidden.
-    return comment.can_report !== false;
+    // Prefer the global config, but keep this tolerant for cached/older comment
+    // payloads while the component and plugin are updated independently. The
+    // server remains the authority and will still reject forbidden reports.
+    if (this.canReportComments) {
+      return comment.can_report !== false;
+    }
+
+    return comment.can_report === true;
   }
 
   @action
@@ -3148,7 +3152,7 @@ export default class MediaGalleryPage extends Component {
       liked_by_current_user: liked,
       likes_count: Math.max(0, likesCount),
       can_like: comment.can_like === true,
-      can_report: comment.can_report === true,
+      can_report: comment.can_report === false ? false : comment.can_report === true,
       reported_by_current_user: comment.reported_by_current_user === true || comment._reportedByMe === true,
       _reportedByMe: comment.reported_by_current_user === true || comment._reportedByMe === true,
       _media_public_id: publicId,
@@ -3219,7 +3223,7 @@ export default class MediaGalleryPage extends Component {
 
     try {
       const data = {};
-      const cursor = beforeId || (!reset ? this.commentsBeforeId : null);
+      const cursor = beforeId ? Number(beforeId) : null;
       if (highlightId && reset) {
         data.comment_id = Number(highlightId);
       } else if (cursor) {
@@ -3268,8 +3272,11 @@ export default class MediaGalleryPage extends Component {
   setPreviewTab(tab) {
     const next = tab === "comments" ? "comments" : "details";
     this.previewTab = next;
-    if (next === "comments" && !this.commentsLoaded) {
-      this.loadComments({ reset: true });
+    if (next === "comments") {
+      const expectedCount = Math.max(0, parseInt(this.previewItem?.comments_count || 0, 10) || 0);
+      if (!this.commentsLoaded || expectedCount > (this.comments || []).length) {
+        this.loadComments({ reset: true });
+      }
     }
   }
 
