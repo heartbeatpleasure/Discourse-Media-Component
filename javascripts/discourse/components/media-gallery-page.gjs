@@ -198,6 +198,14 @@ const REPORT_REASON_FALLBACKS = [
   { id: "rule_violation", label: "Media guideline violation" },
   { id: "other", label: "Other" },
 ];
+const COMMENT_REPORT_REASON_FALLBACKS = [
+  { id: "harassment", label: "Harassment or abuse" },
+  { id: "personal_info", label: "Personal or private information" },
+  { id: "illegal", label: "Illegal or prohibited content" },
+  { id: "spam", label: "Spam or unwanted content" },
+  { id: "rule_violation", label: "Comment guideline violation" },
+  { id: "other", label: "Other" },
+];
 const PER_PAGE_VALUES = [20, 30, 40];
 
 const DEFAULT_LIBRARY_NOTICE_TITLE = "Use this media library responsibly.";
@@ -373,8 +381,20 @@ function normalizeCommentsPayload(raw) {
       deep_link_path: "/media-library",
       likes_enabled: false,
       can_like: false,
+      reports_enabled: false,
+      can_report: false,
+      report_reasons: COMMENT_REPORT_REASON_FALLBACKS,
     };
   }
+
+  const reportReasons = Array.isArray(raw.report_reasons)
+    ? raw.report_reasons
+        .map((entry) => ({
+          id: normalizePlainTextForSubmit(entry?.id, { maxLength: 40, allowNewlines: false }),
+          label: normalizeNoticeText(entry?.label, { maxLength: 120 }),
+        }))
+        .filter((entry) => entry.id && entry.label)
+    : [];
 
   return {
     enabled: raw.enabled === true,
@@ -392,6 +412,9 @@ function normalizeCommentsPayload(raw) {
     deep_link_path: normalizeSameSitePath(raw.deep_link_path, "/media-library"),
     likes_enabled: raw.likes_enabled === true,
     can_like: raw.can_like === true,
+    reports_enabled: raw.reports_enabled === true,
+    can_report: raw.can_report === true,
+    report_reasons: reportReasons.length ? reportReasons : COMMENT_REPORT_REASON_FALLBACKS,
   };
 }
 
@@ -861,7 +884,7 @@ export default class MediaGalleryPage extends Component {
   @tracked uploadPolicy = null;
   @tracked permissions = null;
   @tracked reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
-  @tracked commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library" };
+  @tracked commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library", likes_enabled: false, can_like: false, reports_enabled: false, can_report: false, report_reasons: COMMENT_REPORT_REASON_FALLBACKS };
   @tracked mediaConfigLoaded = false;
   @tracked uploadWatermarkEnabled = true;
   @tracked uploadWatermarkPresetId = "";
@@ -915,6 +938,8 @@ export default class MediaGalleryPage extends Component {
   // Report modal
   @tracked reportOpen = false;
   @tracked reportItem = null;
+  @tracked reportTargetType = "media";
+  @tracked reportComment = null;
   @tracked reportReason = "";
   @tracked reportMessage = "";
   @tracked reportBusy = false;
@@ -1106,7 +1131,7 @@ export default class MediaGalleryPage extends Component {
       this.watermarkConfig = null;
       this.uploadPolicy = null;
       this.reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
-      this.commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH };
+      this.commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library", likes_enabled: false, can_like: false, reports_enabled: false, can_report: false, report_reasons: COMMENT_REPORT_REASON_FALLBACKS };
 
       if (status === 403 || status === 404) {
         this.permissions = {
@@ -3005,6 +3030,14 @@ export default class MediaGalleryPage extends Component {
     return !!(this.commentLikesEnabled && this.commentsConfig?.can_like);
   }
 
+  get commentReportsEnabled() {
+    return !!(this.commentsEnabled && this.commentsConfig?.reports_enabled);
+  }
+
+  get canReportComments() {
+    return !!(this.commentReportsEnabled && this.commentsConfig?.can_report);
+  }
+
   get commentMaxLength() {
     return parseBoundedInteger(this.commentsConfig?.max_length, {
       defaultValue: DEFAULT_COMMENT_MAX_LENGTH,
@@ -3048,6 +3081,14 @@ export default class MediaGalleryPage extends Component {
     return Number.isFinite(count) ? Math.max(0, count) : 0;
   }
 
+  commentReported(comment) {
+    return comment?.reported_by_current_user === true || comment?._reportedByMe === true;
+  }
+
+  canReportComment(comment) {
+    return !!(this.canReportComments && comment?.can_report && !this.commentReported(comment));
+  }
+
   @action
   handleCommentAuthorClick(comment, event) {
     if (!comment || !event) return;
@@ -3085,6 +3126,9 @@ export default class MediaGalleryPage extends Component {
       liked_by_current_user: liked,
       likes_count: Math.max(0, likesCount),
       can_like: comment.can_like === true,
+      can_report: comment.can_report === true,
+      reported_by_current_user: comment.reported_by_current_user === true || comment._reportedByMe === true,
+      _reportedByMe: comment.reported_by_current_user === true || comment._reportedByMe === true,
       _media_public_id: publicId,
       _deep_link_path: this.commentsConfig?.deep_link_path,
     };
@@ -3340,14 +3384,48 @@ export default class MediaGalleryPage extends Component {
     return !!(this.canViewMedia && this.reportsConfig?.enabled && this.previewItem?.public_id);
   }
 
+  get isCommentReport() {
+    return this.reportTargetType === "comment" && !!this.reportComment?.id;
+  }
+
   get reportReasons() {
+    if (this.isCommentReport) {
+      return Array.isArray(this.commentsConfig?.report_reasons) && this.commentsConfig.report_reasons.length
+        ? this.commentsConfig.report_reasons
+        : COMMENT_REPORT_REASON_FALLBACKS;
+    }
+
     return Array.isArray(this.reportsConfig?.reasons) && this.reportsConfig.reasons.length
       ? this.reportsConfig.reasons
       : REPORT_REASON_FALLBACKS;
   }
 
+  get reportModalTitle() {
+    return this.isCommentReport ? I18n.t("media_gallery.report_comment_title") : I18n.t("media_gallery.report_item_title");
+  }
+
+  get reportIntroTitle() {
+    if (this.isCommentReport) {
+      return `${I18n.t("media_gallery.report_comment")}: ${this.commentAuthorUsername(this.reportComment)}`;
+    }
+
+    return this.reportItem?.title || "";
+  }
+
+  get reportIntroBody() {
+    return this.isCommentReport ? normalizeNoticeText(this.reportComment?.body, { maxLength: 220 }) : "";
+  }
+
   get reportSubmitDisabled() {
-    return this.reportBusy || !this.reportItem?.public_id || !String(this.reportReason || "").trim();
+    if (this.reportBusy || !String(this.reportReason || "").trim()) {
+      return true;
+    }
+
+    if (this.isCommentReport) {
+      return !this.reportItem?.public_id || !this.reportComment?.id;
+    }
+
+    return !this.reportItem?.public_id;
   }
 
   @action
@@ -3359,7 +3437,27 @@ export default class MediaGalleryPage extends Component {
 
     this.reportOpen = true;
     this.reportItem = item;
-    this.reportReason = this.reportReasons[0]?.id || "other";
+    this.reportTargetType = "media";
+    this.reportComment = null;
+    this.reportReason = (Array.isArray(this.reportsConfig?.reasons) && this.reportsConfig.reasons[0]?.id) || REPORT_REASON_FALLBACKS[0]?.id || "other";
+    this.reportMessage = "";
+    this.reportBusy = false;
+    this.reportError = "";
+  }
+
+  @action
+  openCommentReportModal(comment, ev) {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+    if (!this.previewItem?.public_id || !this.canReportComment(comment)) {
+      return;
+    }
+
+    this.reportOpen = true;
+    this.reportItem = this.previewItem;
+    this.reportTargetType = "comment";
+    this.reportComment = comment;
+    this.reportReason = (Array.isArray(this.commentsConfig?.report_reasons) && this.commentsConfig.report_reasons[0]?.id) || COMMENT_REPORT_REASON_FALLBACKS[0]?.id || "other";
     this.reportMessage = "";
     this.reportBusy = false;
     this.reportError = "";
@@ -3373,6 +3471,8 @@ export default class MediaGalleryPage extends Component {
 
     this.reportOpen = false;
     this.reportItem = null;
+    this.reportTargetType = "media";
+    this.reportComment = null;
     this.reportReason = "";
     this.reportMessage = "";
     this.reportBusy = false;
@@ -3401,6 +3501,9 @@ export default class MediaGalleryPage extends Component {
     }
 
     const publicId = this.reportItem.public_id;
+    const commentId = this.reportComment?.id;
+    const isCommentReport = this.isCommentReport;
+
     this.reportBusy = true;
     this.reportError = "";
     this.noticeMessage = null;
@@ -3418,16 +3521,33 @@ export default class MediaGalleryPage extends Component {
         payload.message = message;
       }
 
-      const res = await ajax(`/media/${publicId}/report`, { type: "POST", data: payload });
-      const messageKey = res?.duplicate ? "media_gallery.report_duplicate" : "media_gallery.report_submitted";
-      this.noticeMessage = res?.message || I18n.t(messageKey);
-      this._updateItemByPublicId(publicId, { _reportedByMe: true });
-      if (this.previewItem?.public_id === publicId) {
-        this.previewItem = { ...this.previewItem, _reportedByMe: true };
+      const endpoint = isCommentReport
+        ? `/media/${publicId}/comments/${commentId}/report`
+        : `/media/${publicId}/report`;
+      const res = await ajax(endpoint, { type: "POST", data: payload });
+
+      if (isCommentReport) {
+        const messageKey = res?.duplicate ? "media_gallery.report_comment_duplicate" : "media_gallery.report_comment_submitted";
+        this.noticeMessage = res?.message || I18n.t(messageKey);
+        this._updateCommentById(commentId, {
+          reported_by_current_user: true,
+          _reportedByMe: true,
+          can_report: false,
+        });
+      } else {
+        const messageKey = res?.duplicate ? "media_gallery.report_duplicate" : "media_gallery.report_submitted";
+        this.noticeMessage = res?.message || I18n.t(messageKey);
+        this._updateItemByPublicId(publicId, { _reportedByMe: true });
+        if (this.previewItem?.public_id === publicId) {
+          this.previewItem = { ...this.previewItem, _reportedByMe: true };
+        }
       }
+
       this.reportBusy = false;
       this.reportOpen = false;
       this.reportItem = null;
+      this.reportTargetType = "media";
+      this.reportComment = null;
       this.reportReason = "";
       this.reportMessage = "";
       this.reportError = "";
@@ -3436,7 +3556,7 @@ export default class MediaGalleryPage extends Component {
         e?.jqXHR?.responseJSON?.message ||
         e?.jqXHR?.responseJSON?.error ||
         e?.message ||
-        I18n.t("media_gallery.report_failed");
+        I18n.t(isCommentReport ? "media_gallery.report_comment_failed" : "media_gallery.report_failed");
     } finally {
       this.reportBusy = false;
     }
@@ -6392,7 +6512,7 @@ toggleImageFullscreen(e) {
 
                                 <div class="hb-media-comment__body">{{comment.body}}</div>
 
-                                {{#if (or this.commentLikesEnabled comment.can_delete)}}
+                                {{#if (or this.commentLikesEnabled comment.can_delete this.canReportComments)}}
                                   <div class="hb-media-comment__actions">
                                     {{#if this.commentLikesEnabled}}
                                       <button
@@ -6405,6 +6525,18 @@ toggleImageFullscreen(e) {
                                       >
                                         <span class="hb-media-like__count">{{this.commentLikesCount comment}}</span>
                                         {{icon (if comment.liked "heart" "far-heart")}}
+                                      </button>
+                                    {{/if}}
+
+                                    {{#if (this.canReportComment comment)}}
+                                      <button
+                                        class="btn btn-small btn-default hb-media-comment-report-btn"
+                                        type="button"
+                                        title={{i18n "media_gallery.report_comment"}}
+                                        {{on "click" (fn this.openCommentReportModal comment)}}
+                                      >
+                                        {{icon "flag"}}
+                                        {{i18n "media_gallery.report_comment"}}
                                       </button>
                                     {{/if}}
 
@@ -6501,7 +6633,7 @@ toggleImageFullscreen(e) {
       <div class="hb-media-library-modal-backdrop" role="dialog" aria-modal="true" {{on "click" this.closeReportModal}}>
         <div class="hb-media-library-modal hb-media-library-modal--form hb-media-library-modal--report" {{on "click" this.stopBackdropClick}}>
           <div class="hb-media-library-modal-header">
-            <div class="title">{{i18n "media_gallery.report_item_title"}}</div>
+            <div class="title">{{this.reportModalTitle}}</div>
             <button class="btn btn-default" type="button" disabled={{this.reportBusy}} {{on "click" this.closeReportModal}}>
               {{i18n "media_gallery.report_cancel"}}
             </button>
@@ -6510,8 +6642,11 @@ toggleImageFullscreen(e) {
           <div class="hb-media-library-modal-body">
             {{#if this.reportItem}}
               <p class="hb-media-report__intro">
-                <strong>{{this.reportItem.title}}</strong>
+                <strong>{{this.reportIntroTitle}}</strong>
               </p>
+              {{#if this.reportIntroBody}}
+                <p class="hb-media-report__comment-preview">{{this.reportIntroBody}}</p>
+              {{/if}}
             {{/if}}
 
             {{#if this.reportError}}

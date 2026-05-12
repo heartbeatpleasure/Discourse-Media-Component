@@ -1726,6 +1726,25 @@
     min-height: 28px;
   }
 
+  .hb-media-comment-report-btn {
+    min-height: 28px;
+    padding: 0.2rem 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .hb-media-report__comment-preview {
+    margin-top: -0.25rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--primary-low);
+    border-radius: 10px;
+    background: var(--primary-very-low);
+    color: var(--primary-medium);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .hb-media-comments__composer {
     border-top: 1px solid var(--primary-low);
     padding-top: 0.75rem;
