@@ -6876,6 +6876,19 @@ toggleImageFullscreen(e) {
                                   {{#if (this.commentEdited comment)}}
                                     <span class="hb-media-comment__edited">{{i18n "media_gallery.comment_edited"}}</span>
                                   {{/if}}
+                                  {{#if this.commentLikesEnabled}}
+                                    <button
+                                      class={{concat "hb-media-like hb-media-comment-like hb-media-comment-like--inline " (if comment.liked "is-liked " "") (if comment._likePending "is-pending" "")}}
+                                      type="button"
+                                      disabled={{or comment._likePending (not comment.can_like)}}
+                                      aria-label={{if comment.liked (i18n "media_gallery.comment_unlike") (i18n "media_gallery.comment_like")}}
+                                      title={{if comment.liked (i18n "media_gallery.comment_unlike") (i18n "media_gallery.comment_like")}}
+                                      {{on "click" (fn this.toggleCommentLike comment)}}
+                                    >
+                                      <span class="hb-media-like__count">{{this.commentLikesCount comment}}</span>
+                                      {{icon (if comment.liked "heart" "far-heart")}}
+                                    </button>
+                                  {{/if}}
                                 </div>
 
                                 {{#if (this.isEditingComment comment)}}
@@ -6916,22 +6929,8 @@ toggleImageFullscreen(e) {
                                   <div class="hb-media-comment__body">{{comment.body}}</div>
                                 {{/if}}
 
-                                {{#if (or this.commentLikesEnabled comment.can_delete this.canReportComments (this.canEditComment comment))}}
+                                {{#if (or comment.can_delete this.canReportComments (this.canEditComment comment))}}
                                   <div class="hb-media-comment__actions">
-                                    {{#if this.commentLikesEnabled}}
-                                      <button
-                                        class={{concat "hb-media-like hb-media-comment-like " (if comment.liked "is-liked " "") (if comment._likePending "is-pending" "")}}
-                                        type="button"
-                                        disabled={{or comment._likePending (not comment.can_like)}}
-                                        aria-label={{if comment.liked (i18n "media_gallery.comment_unlike") (i18n "media_gallery.comment_like")}}
-                                        title={{if comment.liked (i18n "media_gallery.comment_unlike") (i18n "media_gallery.comment_like")}}
-                                        {{on "click" (fn this.toggleCommentLike comment)}}
-                                      >
-                                        <span class="hb-media-like__count">{{this.commentLikesCount comment}}</span>
-                                        {{icon (if comment.liked "heart" "far-heart")}}
-                                      </button>
-                                    {{/if}}
-
                                     {{#if (this.canReportComment comment)}}
                                       <button
                                         class="btn btn-small btn-default hb-media-comment-report-btn"

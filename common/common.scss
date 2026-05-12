@@ -1545,10 +1545,13 @@
 
   .hb-media-preview__panelFooter {
     flex: 0 0 auto;
-    margin-top: auto;
+    margin-top: 0.25rem;
     display: flex;
-    justify-content: flex-end;
-    padding-top: 0.25rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border-top: 1px solid var(--primary-low);
+    padding-top: 0.85rem;
   }
 
 
@@ -1556,7 +1559,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    margin-right: 0.5rem;
+    margin-right: auto;
   }
 
   .hb-media-report__intro {
@@ -1574,6 +1577,7 @@
   }
 
   .hb-media-like--lg {
+    margin-left: auto;
     padding: 0.45rem 0.7rem;
     border-radius: 999px;
     font-size: var(--font-up-1);
@@ -1719,12 +1723,15 @@
   }
 
   .hb-media-comment__badge {
+    display: inline-flex;
+    align-items: center;
     border-radius: 999px;
     background: var(--primary-very-low);
     color: var(--primary-medium);
     padding: 0.05rem 0.4rem;
     font-size: var(--font-down-2);
     font-weight: 700;
+    transform: translateY(1px);
   }
 
   .hb-media-comment__body {
@@ -1775,10 +1782,16 @@
   }
 
   .hb-media-comment-like {
-    order: 100;
-    margin-left: auto;
     padding: 0.2rem 0.4rem;
     min-height: 28px;
+  }
+
+  .hb-media-comment-like--inline {
+    margin-left: auto;
+    flex: 0 0 auto;
+    align-self: center;
+    min-height: 24px;
+    padding: 0.1rem 0.3rem;
   }
 
   .hb-media-comment-report-btn,
