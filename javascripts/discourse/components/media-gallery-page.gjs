@@ -377,6 +377,38 @@ function normalizeCommentsPayload(raw) {
   };
 }
 
+function mediaCommentAuthor(comment) {
+  const author = comment?.user || comment?.comment_author || comment?.author;
+  return author && typeof author === "object" ? author : {};
+}
+
+function cleanCommentUsername(username) {
+  const u = String(username || "").trim();
+  return u.startsWith("@") ? u.slice(1) : u;
+}
+
+function mediaCommentAuthorUsername(comment) {
+  return cleanCommentUsername(mediaCommentAuthor(comment)?.username || "unknown");
+}
+
+function mediaCommentProfileUrl(comment) {
+  const raw = mediaCommentAuthor(comment)?.profile_url;
+  if (raw) return raw;
+  return `/u/${mediaCommentAuthorUsername(comment)}`;
+}
+
+function mediaCommentAvatarUrl(comment) {
+  const template = mediaCommentAuthor(comment)?.avatar_template;
+  if (!template) return null;
+
+  const url = String(template).replace("{size}", "45");
+  if (url.startsWith("//")) {
+    const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
+    return `${protocol}${url}`;
+  }
+  return url;
+}
+
 function displayAccessGroupName(group) {
   const s = String(group || "").trim();
   const trustLevel = s.match(/^trust_level_(\d+)$/i);
@@ -2780,29 +2812,19 @@ export default class MediaGalleryPage extends Component {
   }
 
   commentAuthor(comment) {
-    return comment?.user || {};
+    return mediaCommentAuthor(comment);
   }
 
   commentAuthorUsername(comment) {
-    return this.cleanUsername(this.commentAuthor(comment)?.username || "unknown");
+    return mediaCommentAuthorUsername(comment);
   }
 
   commentProfileUrl(comment) {
-    const raw = this.commentAuthor(comment)?.profile_url;
-    if (raw) return raw;
-    return `/u/${this.commentAuthorUsername(comment)}`;
+    return mediaCommentProfileUrl(comment);
   }
 
   commentAvatarUrl(comment) {
-    const template = this.commentAuthor(comment)?.avatar_template;
-    if (!template) return null;
-
-    let url = String(template).replace("{size}", "45");
-    if (url.startsWith("//")) {
-      const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
-      return `${protocol}${url}`;
-    }
-    return url;
+    return mediaCommentAvatarUrl(comment);
   }
 
   formatCommentCreatedAt(iso) {
