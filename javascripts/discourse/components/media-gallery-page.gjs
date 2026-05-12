@@ -2877,6 +2877,22 @@ export default class MediaGalleryPage extends Component {
     return mediaCommentPermalinkUrl(comment);
   }
 
+  @action
+  handleCommentAuthorClick(comment, event) {
+    if (!comment || !event) return;
+
+    // Keep normal profile-link behavior for modified clicks / new-tab actions,
+    // but prevent the plain click navigation so Discourse's delegated
+    // `data-user-card` handler can open the native user-card overlay.
+    if (event.button && event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+    const username = this.commentAuthorUsername(comment);
+    if (username && username !== "unknown") {
+      event.preventDefault?.();
+    }
+  }
+
   _normalizePreviewComment(comment, publicId) {
     if (!comment || typeof comment !== "object") return comment;
 
@@ -6090,6 +6106,7 @@ toggleImageFullscreen(e) {
                                 href={{this.commentProfileUrl comment}}
                                 data-user-card={{this.commentAuthorUsername comment}}
                                 title={{this.commentAuthorUsername comment}}
+                                {{on "click" (fn this.handleCommentAuthorClick comment)}}
                               >
                                 {{#if (this.commentAvatarUrl comment)}}
                                   <img alt="" src={{this.commentAvatarUrl comment}} loading="lazy" decoding="async" />
@@ -6104,6 +6121,7 @@ toggleImageFullscreen(e) {
                                     class="hb-media-comment__user trigger-user-card"
                                     href={{this.commentProfileUrl comment}}
                                     data-user-card={{this.commentAuthorUsername comment}}
+                                    {{on "click" (fn this.handleCommentAuthorClick comment)}}
                                   >
                                     {{this.commentAuthorUsername comment}}
                                   </a>
@@ -6114,9 +6132,6 @@ toggleImageFullscreen(e) {
                                     <span class="hb-media-comment__badge">{{i18n "media_gallery.staff_badge"}}</span>
                                   {{/if}}
                                   <span class="hb-media-comment__date">{{this.formatCommentCreatedAt comment.created_at}}</span>
-                                  <a class="hb-media-comment__permalink" href={{this.commentPermalinkUrl comment}} title={{i18n "media_gallery.comment_permalink_title"}}>
-                                    {{i18n "media_gallery.comment_permalink"}}
-                                  </a>
                                 </div>
 
                                 <div class="hb-media-comment__body">{{comment.body}}</div>
