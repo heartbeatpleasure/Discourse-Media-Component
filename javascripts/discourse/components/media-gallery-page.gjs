@@ -6882,13 +6882,13 @@ toggleImageFullscreen(e) {
                                   {{#if comment.owner_comment}}
                                     <span class="hb-media-comment__badge">{{i18n "media_gallery.owner_badge"}}</span>
                                   {{/if}}
-                                  {{#if comment.staff_comment}}
-                                    <span class="hb-media-comment__badge">{{i18n "media_gallery.staff_badge"}}</span>
-                                  {{/if}}
-                                  <span class="hb-media-comment__date">{{this.formatCommentCreatedAt comment.created_at}}</span>
-                                  {{#if (this.commentEdited comment)}}
-                                    <span class="hb-media-comment__edited">{{i18n "media_gallery.comment_edited"}}</span>
-                                  {{/if}}
+                                  <span class="hb-media-comment__date">
+                                    {{this.formatCommentCreatedAt comment.created_at}}
+                                    {{#if (this.commentEdited comment)}}
+                                      <span class="hb-media-comment__editedSeparator" aria-hidden="true">·</span>
+                                      <span class="hb-media-comment__edited">{{i18n "media_gallery.comment_edited"}}</span>
+                                    {{/if}}
+                                  </span>
                                   {{#if this.commentLikesEnabled}}
                                     <button
                                       class={{concat "hb-media-like hb-media-comment-like hb-media-comment-like--inline " (if comment.liked "is-liked " "") (if comment._likePending "is-pending" "")}}

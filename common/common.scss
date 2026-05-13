@@ -1708,6 +1708,7 @@
   .hb-media-comment__user {
     color: var(--primary);
     font-weight: 800;
+    min-width: 0;
   }
 
   .hb-media-comment__permalink {
@@ -1739,6 +1740,18 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     line-height: 1.45;
+  }
+
+  .hb-media-comment__date {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .hb-media-comment__editedSeparator {
+    margin: 0 0.15rem;
+    color: var(--primary-low-mid);
   }
 
   .hb-media-comment__edited {
