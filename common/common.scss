@@ -2008,3 +2008,63 @@ body.hb-media-preview-open {
     position: relative;
   }
 }
+
+/* Upload feedback modal: keeps upload/file errors visible even after scrolling */
+.hb-media-library-page {
+  .hb-media-library-upload-feedback-backdrop {
+    z-index: 1002;
+  }
+
+  .hb-media-library-modal--upload-feedback {
+    width: min(620px, 96vw);
+    max-width: min(620px, 96vw);
+  }
+
+  .hb-media-library-modal--upload-feedback-error {
+    border-top: 4px solid var(--danger);
+  }
+
+  .hb-media-library-modal--upload-feedback-warning {
+    border-top: 4px solid var(--tertiary);
+  }
+
+  .hb-media-upload-feedback {
+    display: grid;
+    gap: 0.85rem;
+  }
+
+  .hb-media-upload-feedback__message {
+    font-size: var(--font-up-0);
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .hb-media-upload-feedback__details {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.75rem;
+    border: 1px solid var(--primary-low);
+    border-radius: 10px;
+    background: var(--primary-very-low);
+    color: var(--primary);
+    overflow-wrap: anywhere;
+  }
+
+  .hb-media-upload-feedback__hint {
+    margin-top: -0.25rem;
+  }
+
+  @media (max-width: 600px) {
+    .hb-media-library-modal--upload-feedback {
+      width: calc(100vw - 1.25rem);
+      max-width: calc(100vw - 1.25rem);
+    }
+
+    .hb-media-upload-feedback .hb-media-library-actions-row {
+      .btn {
+        flex: 1 1 100%;
+      }
+    }
+  }
+}

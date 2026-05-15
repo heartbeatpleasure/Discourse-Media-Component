@@ -911,6 +911,12 @@ export default class MediaGalleryPage extends Component {
   @tracked duplicateUploadDetails = null;
   @tracked pendingDuplicateUploadPayload = null;
 
+  // Upload feedback modal (file/upload-related errors and warnings)
+  @tracked uploadFeedbackOpen = false;
+  @tracked uploadFeedbackType = "error";
+  @tracked uploadFeedbackTitle = "";
+  @tracked uploadFeedbackMessage = "";
+
   // Preview modal
   @tracked previewOpen = false;
   @tracked previewItem = null;
@@ -2524,7 +2530,7 @@ export default class MediaGalleryPage extends Component {
     this._uploadFileInputEl = e.target;
     const file = e.target.files?.[0];
     this.uploadFile = file || null;
-    this.clearDuplicateUploadWarning();
+    this.clearUploadFeedback();
     // Intentionally do NOT auto-fill the title with the filename.
     // Filenames are often random hashes; users must provide a descriptive title.
   }
@@ -2544,7 +2550,7 @@ export default class MediaGalleryPage extends Component {
     this.uploadTagsSelected = [];
     this.uploadTagsQuery = "";
     this.uploadTagsOpen = false;
-    this.clearDuplicateUploadWarning();
+    this.clearUploadFeedback();
 
     if (this.watermarkConfig?.enabled) {
       this.uploadWatermarkEnabled = true;
@@ -2629,6 +2635,36 @@ export default class MediaGalleryPage extends Component {
     this.pendingDuplicateUploadPayload = null;
   }
 
+  clearUploadFeedback() {
+    this.uploadFeedbackOpen = false;
+    this.uploadFeedbackType = "error";
+    this.uploadFeedbackTitle = "";
+    this.uploadFeedbackMessage = "";
+    this.clearDuplicateUploadWarning();
+  }
+
+  showUploadFeedback(message, { type = "error", title = null } = {}) {
+    const fallback =
+      type === "warning"
+        ? "Please review the upload warning before continuing."
+        : "Please check the selected file and try again.";
+    const normalizedMessage = String(message || fallback).trim();
+
+    this.uploadFeedbackType = type === "warning" ? "warning" : "error";
+    this.uploadFeedbackTitle =
+      title ||
+      (this.uploadFeedbackType === "warning"
+        ? "Upload warning"
+        : "Upload could not be completed");
+    this.uploadFeedbackMessage = normalizedMessage || fallback;
+    this.uploadFeedbackOpen = true;
+  }
+
+  showUploadError(message, { title = "Upload could not be completed" } = {}) {
+    this.clearDuplicateUploadWarning();
+    this.showUploadFeedback(message, { type: "error", title });
+  }
+
   buildUploadRegistrationPayload(uploadId, extra = {}) {
     const safeTitle = normalizePlainTextForSubmit(this.uploadTitle, {
       maxLength: MAX_TITLE_LENGTH,
@@ -2678,7 +2714,7 @@ export default class MediaGalleryPage extends Component {
   }
 
   async completeSuccessfulUploadRegistration() {
-    this.clearDuplicateUploadWarning();
+    this.clearUploadFeedback();
     this.noticeMessage = I18n.t("media_gallery.uploading_notice");
     this.resetUploadForm();
 
@@ -2705,6 +2741,10 @@ export default class MediaGalleryPage extends Component {
     const overrideAllowed = duplicate?.override_allowed === true;
     this.duplicateUploadMessage = this.friendlyUploadErrorMessage(error);
     this.duplicateUploadDetails = duplicate;
+    this.showUploadFeedback(this.duplicateUploadMessage, {
+      type: overrideAllowed ? "warning" : "error",
+      title: overrideAllowed ? "Possible duplicate file" : "Duplicate file blocked",
+    });
 
     if (overrideAllowed) {
       this.pendingDuplicateUploadPayload = {
@@ -2719,8 +2759,17 @@ export default class MediaGalleryPage extends Component {
   }
 
   @action
+  dismissUploadFeedback() {
+    if (this.uploadBusy) {
+      return;
+    }
+
+    this.clearUploadFeedback();
+  }
+
+  @action
   cancelDuplicateUpload() {
-    this.clearDuplicateUploadWarning();
+    this.clearUploadFeedback();
   }
 
   @action
@@ -2737,7 +2786,7 @@ export default class MediaGalleryPage extends Component {
       await this.registerMediaUpload(this.pendingDuplicateUploadPayload);
       await this.completeSuccessfulUploadRegistration();
     } catch (e) {
-      this.errorMessage = this.friendlyUploadErrorMessage(e);
+      this.showUploadError(this.friendlyUploadErrorMessage(e));
     } finally {
       this.uploadBusy = false;
     }
@@ -2747,7 +2796,7 @@ export default class MediaGalleryPage extends Component {
   async submitUpload() {
     this.noticeMessage = null;
     this.errorMessage = null;
-    this.clearDuplicateUploadWarning();
+    this.clearUploadFeedback();
 
     if (!this.canUploadMedia) {
       this.errorMessage = this.uploadAccessMessage;
@@ -2755,30 +2804,32 @@ export default class MediaGalleryPage extends Component {
     }
 
     if (!this.uploadFile) {
-      this.errorMessage = I18n.t("media_gallery.errors.missing_file");
+      this.showUploadError(I18n.t("media_gallery.errors.missing_file"));
       return;
     }
 
     if (!this.uploadTitle?.trim()) {
-      this.errorMessage = I18n.t("media_gallery.errors.missing_title");
+      this.showUploadError(I18n.t("media_gallery.errors.missing_title"));
       return;
     }
 
     if (!this.uploadGender) {
-      this.errorMessage = I18n.t("media_gallery.errors.missing_gender");
+      this.showUploadError(I18n.t("media_gallery.errors.missing_gender"));
       return;
     }
 
     if (!this.uploadAuthorized) {
-      this.errorMessage = this.uploadTermsUrl
-        ? I18n.t("media_gallery.errors.missing_authorization_with_terms")
-        : I18n.t("media_gallery.errors.missing_authorization");
+      this.showUploadError(
+        this.uploadTermsUrl
+          ? I18n.t("media_gallery.errors.missing_authorization_with_terms")
+          : I18n.t("media_gallery.errors.missing_authorization")
+      );
       return;
     }
 
     const preflightError = await this.validateUploadFileBeforeSend();
     if (preflightError) {
-      this.errorMessage = preflightError;
+      this.showUploadError(preflightError);
       return;
     }
 
@@ -2820,7 +2871,7 @@ export default class MediaGalleryPage extends Component {
       if (status === 404 || status === 403) {
         this.errorMessage = I18n.t("media_gallery.errors.upload_not_allowed");
       } else {
-        this.errorMessage = this.friendlyUploadErrorMessage(e);
+        this.showUploadError(this.friendlyUploadErrorMessage(e));
       }
     } finally {
       this.uploadBusy = false;
@@ -5830,23 +5881,6 @@ toggleImageFullscreen(e) {
       <div class="alert alert-error">{{this.errorMessage}}</div>
     {{/if}}
 
-    {{#if this.duplicateUploadMessage}}
-      <div class="alert alert-info hb-media-library-duplicate-warning">
-        <strong>Possible duplicate file</strong>
-        <div>{{this.duplicateUploadMessage}}</div>
-        {{#if this.pendingDuplicateUploadPayload}}
-          <div class="hb-muted" style="margin-top: 0.35rem;">Continuing will create a separate media item for the file you selected.</div>
-          <div class="hb-media-library-actions-row" style="margin-top: 0.75rem;">
-            <button class="btn btn-primary" type="button" disabled={{this.uploadBusy}} {{on "click" this.confirmDuplicateUpload}}>
-              Create duplicate item anyway
-            </button>
-            <button class="btn btn-default" type="button" disabled={{this.uploadBusy}} {{on "click" this.cancelDuplicateUpload}}>
-              Cancel
-            </button>
-          </div>
-        {{/if}}
-      </div>
-    {{/if}}
 
     {{#if this.showMediaLibraryNotice}}
       <div class="alert alert-info hb-media-library-guidelines-notice">
@@ -7048,6 +7082,62 @@ toggleImageFullscreen(e) {
                     </button>
                   </div>
                 </div>
+              </div>
+            {{/if}}
+          </div>
+        </div>
+      </div>
+    {{/if}}
+
+    {{!-- Upload feedback modal: file/upload-related errors and duplicate warnings --}}
+    {{#if this.uploadFeedbackOpen}}
+      <div class="hb-media-library-modal-backdrop hb-media-library-upload-feedback-backdrop" role="alertdialog" aria-modal="true" {{on "click" this.dismissUploadFeedback}}>
+        <div class={{concat "hb-media-library-modal hb-media-library-modal--form hb-media-library-modal--upload-feedback hb-media-library-modal--upload-feedback-" this.uploadFeedbackType}} {{on "click" this.stopBackdropClick}}>
+          <div class="hb-media-library-modal-header">
+            <div class="title">{{this.uploadFeedbackTitle}}</div>
+            <button class="btn btn-default" type="button" disabled={{this.uploadBusy}} {{on "click" this.dismissUploadFeedback}}>
+              Close
+            </button>
+          </div>
+
+          <div class="hb-media-library-modal-body hb-media-upload-feedback">
+            <div class="hb-media-upload-feedback__message">{{this.uploadFeedbackMessage}}</div>
+
+            {{#if this.duplicateUploadDetails}}
+              <div class="hb-media-upload-feedback__details">
+                {{#if this.duplicateUploadDetails.filename}}
+                  <div><strong>Selected file:</strong> {{this.duplicateUploadDetails.filename}}</div>
+                {{/if}}
+                {{#if this.duplicateUploadDetails.existing_title}}
+                  <div><strong>Existing item:</strong> {{this.duplicateUploadDetails.existing_title}}</div>
+                {{/if}}
+                {{#if this.duplicateUploadDetails.existing_uploader_username}}
+                  <div><strong>Uploaded by:</strong> {{this.duplicateUploadDetails.existing_uploader_username}}</div>
+                {{/if}}
+              </div>
+            {{/if}}
+
+            {{#if this.pendingDuplicateUploadPayload}}
+              <div class="hb-muted hb-media-upload-feedback__hint">
+                Continuing will create a separate media item for the file you selected.
+              </div>
+              <div class="hb-media-library-actions-row">
+                <button class="btn btn-primary" type="button" disabled={{this.uploadBusy}} {{on "click" this.confirmDuplicateUpload}}>
+                  {{#if this.uploadBusy}}
+                    Creating…
+                  {{else}}
+                    Create duplicate item anyway
+                  {{/if}}
+                </button>
+                <button class="btn btn-default" type="button" disabled={{this.uploadBusy}} {{on "click" this.cancelDuplicateUpload}}>
+                  Cancel
+                </button>
+              </div>
+            {{else}}
+              <div class="hb-media-library-actions-row">
+                <button class="btn btn-primary" type="button" disabled={{this.uploadBusy}} {{on "click" this.dismissUploadFeedback}}>
+                  OK
+                </button>
               </div>
             {{/if}}
           </div>
