@@ -1449,6 +1449,28 @@
     }
   }
 
+  .hb-media-preview__player.is-panoramic {
+    /*
+      Extreme panoramic media can become very short in the two-column modal.
+      Give the media canvas a usable minimum height so the comments composer
+      and footer stay visible without making the comment list expand the modal.
+      The actual image/video still uses object-fit: contain inside this canvas.
+    */
+    min-height: min(clamp(340px, 48vh, 430px), var(--hb-media-player-max-h));
+  }
+
+  @media (max-height: 700px) and (min-width: 901px) {
+    .hb-media-preview__player.is-panoramic {
+      min-height: min(340px, var(--hb-media-player-max-h));
+    }
+  }
+
+  @media (max-width: 900px) {
+    .hb-media-preview__player.is-panoramic {
+      min-height: 0;
+    }
+  }
+
   .hb-media-preview__panel {
     display: flex;
     flex-direction: column;
@@ -1852,6 +1874,44 @@
       width: 100%;
       min-height: 76px;
       resize: vertical;
+    }
+  }
+
+  @media (max-height: 700px) and (min-width: 901px) {
+    .hb-media-preview__panel {
+      gap: 0.55rem;
+    }
+
+    .hb-media-preview__panelHeader {
+      gap: 0.38rem;
+      padding-top: 0.45rem;
+    }
+
+    .hb-media-preview__tabs {
+      padding-bottom: 0.25rem;
+    }
+
+    .hb-media-comments {
+      gap: 0.55rem;
+    }
+
+    .hb-media-comments__list {
+      gap: 0.5rem;
+    }
+
+    .hb-media-comments__composer {
+      gap: 0.4rem;
+      padding-top: 0.55rem;
+
+      textarea {
+        min-height: 58px;
+        max-height: 84px;
+      }
+    }
+
+    .hb-media-preview__panelFooter {
+      margin-top: 0.1rem;
+      padding-top: 0.6rem;
     }
   }
 

@@ -4037,8 +4037,16 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
 
 // Preview sizing + fullscreen helpers
+get previewIsPanoramic() {
+  const ar = Number(this.previewAr);
+  return Number.isFinite(ar) && ar >= 2.2;
+}
+
 get previewAspectClass() {
-  return this.previewAspect ? `is-${this.previewAspect}` : "";
+  const classes = [];
+  if (this.previewAspect) classes.push(`is-${this.previewAspect}`);
+  if (this.previewIsPanoramic) classes.push("is-panoramic");
+  return classes.join(" ");
 }
 
 get previewPlayerStyle() {
@@ -4068,6 +4076,17 @@ get previewPanelStyle() {
   }
 
   return htmlSafe(`--hb-preview-panel-max-h: ${Math.max(260, Math.floor(h))}px;`);
+}
+
+_previewUsablePanelMinHeight() {
+  const vh = Number(typeof window !== "undefined" ? window.innerHeight : 0);
+
+  if (Number.isFinite(vh) && vh > 0) {
+    if (vh < 640) return 340;
+    if (vh < 760) return 380;
+  }
+
+  return 430;
 }
 
   get previewFullscreenActive() {
@@ -4256,8 +4275,9 @@ _setPreviewAspect(width, height) {
     // layout we intentionally leave the panel unconstrained so the page can scroll.
     const mediaRect = mediaEl.getBoundingClientRect();
     const isTwoColumn = panelEl && panelEl.getBoundingClientRect().width > 0 && availableW < previewRect.width;
+    const minimumPanelH = this.previewIsPanoramic ? this._previewUsablePanelMinHeight() : 260;
     const nextPanelH = isTwoColumn && mediaRect?.height > 0
-      ? Math.max(260, Math.floor(mediaRect.height))
+      ? Math.max(minimumPanelH, Math.floor(mediaRect.height))
       : null;
 
     if (this.previewPanelMaxH !== nextPanelH) {
