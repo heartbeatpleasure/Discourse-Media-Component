@@ -3411,29 +3411,39 @@ export default class MediaGalleryPage extends Component {
     return !normalizePlainTextForSubmit(this.editingCommentBody, { maxLength: this.commentMaxLength, allowNewlines: true });
   }
 
-  @action
-  handleCommentAuthorClick(comment, event) {
-    if (!comment || !event) return;
+  _triggerNativeUserCard(username, event) {
+    if (!event) return;
 
     // Keep normal profile-link behavior for modified clicks / new-tab actions.
     if (event.button && event.button !== 0) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 
-    const username = this.commentAuthorUsername(comment);
-    if (!username || username === "unknown") return;
+    const cleanedUsername = this.cleanUsername(username);
+    if (!cleanedUsername || cleanedUsername === "unknown") return;
 
     const target = event.currentTarget || event.target?.closest?.("[data-user-card]");
     if (!target || !this.appEvents?.trigger) return;
 
     // The media preview is a custom overlay, so Discourse's delegated
-    // card-click listener is not always attached to the comment DOM. Trigger
+    // card-click listener is not always attached to the custom DOM. Trigger
     // the native user-card entry point directly, while keeping modified clicks
     // as normal profile-link navigation.
     event.preventDefault?.();
     event.stopPropagation?.();
     this._raiseNativeCardLayer();
-    this.appEvents.trigger("topic-header:trigger-user-card", username, target, event);
+    this.appEvents.trigger("topic-header:trigger-user-card", cleanedUsername, target, event);
     this._raiseNativeCardLayer();
+  }
+
+  @action
+  handleCommentAuthorClick(comment, event) {
+    if (!comment) return;
+    this._triggerNativeUserCard(this.commentAuthorUsername(comment), event);
+  }
+
+  @action
+  handleUploaderUserClick(username, event) {
+    this._triggerNativeUserCard(username, event);
   }
 
   _normalizePreviewComment(comment, publicId) {
@@ -4037,16 +4047,8 @@ export default class MediaGalleryPage extends Component {
   // -----------------------
 
 // Preview sizing + fullscreen helpers
-get previewIsPanoramic() {
-  const ar = Number(this.previewAr);
-  return Number.isFinite(ar) && ar >= 2.2;
-}
-
 get previewAspectClass() {
-  const classes = [];
-  if (this.previewAspect) classes.push(`is-${this.previewAspect}`);
-  if (this.previewIsPanoramic) classes.push("is-panoramic");
-  return classes.join(" ");
+  return this.previewAspect ? `is-${this.previewAspect}` : "";
 }
 
 get previewPlayerStyle() {
@@ -4076,17 +4078,6 @@ get previewPanelStyle() {
   }
 
   return htmlSafe(`--hb-preview-panel-max-h: ${Math.max(260, Math.floor(h))}px;`);
-}
-
-_previewUsablePanelMinHeight() {
-  const vh = Number(typeof window !== "undefined" ? window.innerHeight : 0);
-
-  if (Number.isFinite(vh) && vh > 0) {
-    if (vh < 640) return 340;
-    if (vh < 760) return 380;
-  }
-
-  return 430;
 }
 
   get previewFullscreenActive() {
@@ -4275,9 +4266,8 @@ _setPreviewAspect(width, height) {
     // layout we intentionally leave the panel unconstrained so the page can scroll.
     const mediaRect = mediaEl.getBoundingClientRect();
     const isTwoColumn = panelEl && panelEl.getBoundingClientRect().width > 0 && availableW < previewRect.width;
-    const minimumPanelH = this.previewIsPanoramic ? this._previewUsablePanelMinHeight() : 260;
     const nextPanelH = isTwoColumn && mediaRect?.height > 0
-      ? Math.max(minimumPanelH, Math.floor(mediaRect.height))
+      ? Math.max(260, Math.floor(mediaRect.height))
       : null;
 
     if (this.previewPanelMaxH !== nextPanelH) {
@@ -6399,8 +6389,11 @@ toggleImageFullscreen(e) {
                   {{#if item.uploader_username}}
                     <span class="hb-media-library-row__metaLabel">Uploaded by:</span>
                     <a
-                      class="hb-media-library-row__uploader"
+                      class="hb-media-library-row__uploader trigger-user-card"
                       href={{concat "/u/" (this.cleanUsername item.uploader_username)}}
+                      data-user-card={{this.cleanUsername item.uploader_username}}
+                      title={{this.cleanUsername item.uploader_username}}
+                      {{on "click" (fn this.handleUploaderUserClick item.uploader_username)}}
                     >
                       {{this.cleanUsername item.uploader_username}}
                     </a>
@@ -6808,7 +6801,13 @@ toggleImageFullscreen(e) {
                       {{#if this.previewItem.uploader_username}}
                         <span class="hb-media-preview__metaItem">
                           {{icon "user"}}
-                          <a href={{concat "/u/" (this.cleanUsername this.previewItem.uploader_username)}}>
+                          <a
+                            class="trigger-user-card"
+                            href={{concat "/u/" (this.cleanUsername this.previewItem.uploader_username)}}
+                            data-user-card={{this.cleanUsername this.previewItem.uploader_username}}
+                            title={{this.cleanUsername this.previewItem.uploader_username}}
+                            {{on "click" (fn this.handleUploaderUserClick this.previewItem.uploader_username)}}
+                          >
                             {{this.cleanUsername this.previewItem.uploader_username}}
                           </a>
                         </span>
