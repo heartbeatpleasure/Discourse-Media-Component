@@ -805,6 +805,27 @@ function buildDurationTooLongMessage(mediaType, actualSeconds, maxSeconds) {
   return `This ${mediaTypeLabel(mediaType)} is too long (${formatDurationLabel(actualSeconds)}). The maximum allowed ${mediaType} duration is ${formatDurationLabel(maxSeconds)}.`;
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createUploadCancelledError() {
+  const error = new Error("Upload cancelled.");
+  error.hbUploadCancelled = true;
+  return error;
+}
+
+function shouldRetryChunkUpload(error) {
+  const status = Number(error?.jqXHR?.status || 0);
+  return status === 0 || status === 408 || status === 429 || status >= 500;
+}
+
+function normalizePositiveInteger(value, fallback = 0) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
 function probeLocalMediaDuration(file, mediaType) {
   return new Promise((resolve) => {
     try {
@@ -885,6 +906,10 @@ export default class MediaGalleryPage extends Component {
   // Upload UI
   @tracked showUpload = false;
   @tracked uploadBusy = false;
+  @tracked uploadProgressPercent = 0;
+  @tracked uploadProgressText = "";
+  @tracked chunkedUploadSessionId = null;
+  @tracked chunkedUploadCancelling = false;
   @tracked uploadFile = null;
   @tracked uploadTitle = "";
   @tracked uploadDescription = "";
@@ -1032,6 +1057,8 @@ export default class MediaGalleryPage extends Component {
   _lastHandledDeepLinkKey = null;
   _deepLinkOpenPromise = null;
   _boundRouteDidChange = null;
+  _chunkedUploadCancelled = false;
+  _chunkedUploadCompleted = false;
 
   // Media items from the backend have historically used different keys/values
   // for type (media_type/type/etc). Normalize once to keep templates robust.
@@ -1799,6 +1826,19 @@ export default class MediaGalleryPage extends Component {
     return false;
   }
 
+  get uploadProgressVisible() {
+    return this.uploadBusy && !!this.uploadProgressText;
+  }
+
+  get uploadProgressStyle() {
+    const pct = Math.max(0, Math.min(100, Number(this.uploadProgressPercent || 0)));
+    return htmlSafe(`width: ${pct}%;`);
+  }
+
+  get canCancelChunkedUpload() {
+    return this.uploadBusy && !!this.chunkedUploadSessionId && !this.chunkedUploadCancelling;
+  }
+
   get editSubmitDisabled() {
     if (this.editBusy) return true;
     if (!normalizePlainTextForSubmit(this.editTitle, { maxLength: MAX_TITLE_LENGTH })) return true;
@@ -1958,6 +1998,23 @@ export default class MediaGalleryPage extends Component {
         return "You can only register your own uploads.";
       case "invalid_upload_id":
         return "The upload reference is invalid. Please upload the file again.";
+      case "chunked_uploads_disabled":
+        return "Large-file upload support is currently disabled. Please try a smaller file or contact staff.";
+      case "too_many_active_upload_sessions":
+        return joinedErrors || "Too many large uploads are already active for your account. Please wait or cancel another upload first.";
+      case "upload_session_expired":
+      case "upload_session_not_found":
+        return joinedErrors || "The large upload session expired. Please start the upload again.";
+      case "missing_upload_chunks":
+      case "assembled_file_size_mismatch":
+        return joinedErrors || "The large upload was incomplete. Please try again.";
+      case "chunk_too_large":
+        return joinedErrors || "One upload chunk was too large. Please contact staff to check the chunk size setting.";
+      case "chunk_upload_failed":
+      case "chunked_upload_start_failed":
+      case "chunked_upload_complete_failed":
+      case "discourse_upload_failed":
+        return joinedErrors || "The large file upload could not be completed. Please try again.";
       case "unsupported_file_type":
         return joinedErrors || buildUnsupportedFileTypeMessage(this.uploadFile, this.uploadPolicy);
       case "unsupported_file_extension":
@@ -2792,11 +2849,181 @@ export default class MediaGalleryPage extends Component {
     }
   }
 
+  get chunkedUploadPolicy() {
+    return this.uploadPolicy?.chunked_uploads || { enabled: false };
+  }
+
+  shouldUseChunkedUpload(file = this.uploadFile) {
+    if (!file) return false;
+
+    const policy = this.chunkedUploadPolicy;
+    if (!policy?.enabled) return false;
+
+    const thresholdBytes = normalizePositiveInteger(
+      policy.threshold_bytes,
+      normalizePositiveInteger(policy.threshold_mb, 80) * BYTES_PER_MB
+    );
+    const chunkSizeBytes = normalizePositiveInteger(
+      policy.chunk_size_bytes,
+      normalizePositiveInteger(policy.chunk_size_mb, 25) * BYTES_PER_MB
+    );
+
+    return thresholdBytes > 0 && chunkSizeBytes > 0 && Number(file.size || 0) >= thresholdBytes;
+  }
+
+  resetUploadProgress() {
+    this.uploadProgressPercent = 0;
+    this.uploadProgressText = "";
+    this.chunkedUploadSessionId = null;
+    this.chunkedUploadCancelling = false;
+    this._chunkedUploadCancelled = false;
+    this._chunkedUploadCompleted = false;
+  }
+
+  updateUploadProgress(percent, text) {
+    this.uploadProgressPercent = Math.max(0, Math.min(100, Number(percent || 0)));
+    this.uploadProgressText = String(text || "").trim();
+  }
+
+  async uploadFileViaDiscourseUpload(file) {
+    const fd = new FormData();
+    fd.append("upload_type", "composer");
+    fd.append("synchronous", "true");
+    fd.append("file", file);
+
+    return ajax("/uploads.json", {
+      type: "POST",
+      data: fd,
+      processData: false,
+      contentType: false,
+    });
+  }
+
+  async uploadFileViaChunkedEndpoint(file) {
+    this.resetUploadProgress();
+    this.updateUploadProgress(1, "Preparing large file upload…");
+
+    const startRes = await ajax("/media/chunked/start", {
+      type: "POST",
+      data: {
+        filename: file.name,
+        filesize: file.size,
+        content_type: file.type || "",
+      },
+    });
+
+    const sessionId = String(startRes?.session_id || "").trim();
+    const chunkSizeBytes = normalizePositiveInteger(startRes?.chunk_size_bytes);
+    const totalParts = normalizePositiveInteger(startRes?.total_parts);
+
+    if (!sessionId || chunkSizeBytes <= 0 || totalParts <= 0) {
+      throw new Error("Large upload could not be started. Please try again.");
+    }
+
+    this.chunkedUploadSessionId = sessionId;
+
+    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+      if (this._chunkedUploadCancelled) {
+        throw createUploadCancelledError();
+      }
+
+      const start = (partNumber - 1) * chunkSizeBytes;
+      const end = Math.min(start + chunkSizeBytes, file.size);
+      const chunk = file.slice(start, end);
+      const progressPrefix = totalParts > 1 ? `Uploading chunk ${partNumber} of ${totalParts}` : "Uploading file";
+      this.updateUploadProgress(Math.round(((partNumber - 1) / totalParts) * 92) + 2, `${progressPrefix}…`);
+
+      const fd = new FormData();
+      fd.append("session_id", sessionId);
+      fd.append("part_number", String(partNumber));
+      fd.append("chunk", chunk, `${file.name}.part-${partNumber}`);
+
+      await this.uploadChunkWithRetry(fd, partNumber);
+
+      this.updateUploadProgress(Math.round((partNumber / totalParts) * 92) + 2, `${progressPrefix} complete…`);
+    }
+
+    if (this._chunkedUploadCancelled) {
+      throw createUploadCancelledError();
+    }
+
+    this.updateUploadProgress(96, "Finalizing upload…");
+    const completeRes = await ajax("/media/chunked/complete", {
+      type: "POST",
+      data: { session_id: sessionId },
+    });
+
+    this._chunkedUploadCompleted = true;
+    this.chunkedUploadSessionId = null;
+    this.updateUploadProgress(98, "Registering media item…");
+
+    return completeRes;
+  }
+
+  async uploadChunkWithRetry(formData, partNumber) {
+    const maxAttempts = 3;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (this._chunkedUploadCancelled) {
+        throw createUploadCancelledError();
+      }
+
+      try {
+        return await ajax("/media/chunked/part", {
+          type: "POST",
+          data: formData,
+          processData: false,
+          contentType: false,
+        });
+      } catch (e) {
+        lastError = e;
+        if (attempt >= maxAttempts || !shouldRetryChunkUpload(e)) {
+          throw e;
+        }
+
+        this.updateUploadProgress(
+          this.uploadProgressPercent,
+          `Chunk ${partNumber} failed temporarily; retrying (${attempt + 1}/${maxAttempts})…`
+        );
+        await delay(750 * attempt);
+      }
+    }
+
+    throw lastError || new Error("Upload chunk failed.");
+  }
+
+  async abortChunkedUploadSession(sessionId) {
+    const sid = String(sessionId || "").trim();
+    if (!sid) return;
+
+    try {
+      await ajax("/media/chunked/abort", {
+        type: "POST",
+        data: { session_id: sid },
+      });
+    } catch {
+      // Best-effort cleanup. The scheduled cleanup job will remove expired chunks.
+    }
+  }
+
+  @action
+  async cancelChunkedUpload() {
+    if (!this.canCancelChunkedUpload) return;
+
+    const sessionId = this.chunkedUploadSessionId;
+    this._chunkedUploadCancelled = true;
+    this.chunkedUploadCancelling = true;
+    this.updateUploadProgress(this.uploadProgressPercent, "Cancelling upload…");
+    await this.abortChunkedUploadSession(sessionId);
+  }
+
   @action
   async submitUpload() {
     this.noticeMessage = null;
     this.errorMessage = null;
     this.clearUploadFeedback();
+    this.resetUploadProgress();
 
     if (!this.canUploadMedia) {
       this.errorMessage = this.uploadAccessMessage;
@@ -2834,21 +3061,16 @@ export default class MediaGalleryPage extends Component {
     }
 
     this.uploadBusy = true;
+    let sessionToAbort = null;
 
     try {
-      const fd = new FormData();
-      fd.append("upload_type", "composer");
-      fd.append("synchronous", "true");
-      fd.append("file", this.uploadFile);
+      const uploadRes = this.shouldUseChunkedUpload(this.uploadFile)
+        ? await this.uploadFileViaChunkedEndpoint(this.uploadFile)
+        : await this.uploadFileViaDiscourseUpload(this.uploadFile);
 
-      const uploadRes = await ajax("/uploads.json", {
-        type: "POST",
-        data: fd,
-        processData: false,
-        contentType: false,
-      });
+      sessionToAbort = this.chunkedUploadSessionId;
 
-      const uploadId = uploadRes?.id;
+      const uploadId = uploadRes?.upload_id || uploadRes?.id;
       if (!uploadId) {
         throw new Error(I18n.t("media_gallery.errors.upload_failed"));
       }
@@ -2856,6 +3078,9 @@ export default class MediaGalleryPage extends Component {
       const payload = this.buildUploadRegistrationPayload(uploadId);
 
       try {
+        if (this.shouldUseChunkedUpload(this.uploadFile)) {
+          this.updateUploadProgress(99, "Creating media item…");
+        }
         await this.registerMediaUpload(payload);
       } catch (registrationError) {
         if (this.maybePrepareDuplicateUploadConfirmation(registrationError, payload)) {
@@ -2865,16 +3090,32 @@ export default class MediaGalleryPage extends Component {
         throw registrationError;
       }
 
+      this.updateUploadProgress(100, "Upload complete.");
       await this.completeSuccessfulUploadRegistration();
     } catch (e) {
       const status = e?.jqXHR?.status;
-      if (status === 404 || status === 403) {
+      if (e?.hbUploadCancelled) {
+        this.noticeMessage = "Upload cancelled.";
+      } else if (status === 404 || status === 403) {
         this.errorMessage = I18n.t("media_gallery.errors.upload_not_allowed");
       } else {
         this.showUploadError(this.friendlyUploadErrorMessage(e));
       }
     } finally {
+      const pendingSession = sessionToAbort || this.chunkedUploadSessionId;
+      if (pendingSession && !this._chunkedUploadCompleted) {
+        await this.abortChunkedUploadSession(pendingSession);
+      }
+
       this.uploadBusy = false;
+      this.chunkedUploadCancelling = false;
+      this.chunkedUploadSessionId = null;
+      this._chunkedUploadCancelled = false;
+      this._chunkedUploadCompleted = false;
+      if (!this.uploadFeedbackOpen) {
+        this.uploadProgressText = "";
+        this.uploadProgressPercent = 0;
+      }
     }
   }
 
@@ -6116,6 +6357,18 @@ toggleImageFullscreen(e) {
           </div>
         </div>
 
+        {{#if this.uploadProgressVisible}}
+          <div class="hb-media-upload-progress" role="status" aria-live="polite">
+            <div class="hb-media-upload-progress__label">
+              <span>{{this.uploadProgressText}}</span>
+              <span>{{this.uploadProgressPercent}}%</span>
+            </div>
+            <div class="hb-media-upload-progress__bar" aria-hidden="true">
+              <div class="hb-media-upload-progress__fill" style={{this.uploadProgressStyle}}></div>
+            </div>
+          </div>
+        {{/if}}
+
         <div class="hb-media-library-actions-row">
           <button
             class="btn btn-primary"
@@ -6129,6 +6382,16 @@ toggleImageFullscreen(e) {
               Start upload
             {{/if}}
           </button>
+
+          {{#if this.canCancelChunkedUpload}}
+            <button
+              class="btn btn-default"
+              type="button"
+              {{on "click" this.cancelChunkedUpload}}
+            >
+              Cancel upload
+            </button>
+          {{/if}}
 
           <button
             class="btn btn-default"

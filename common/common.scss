@@ -129,6 +129,40 @@
     }
   }
 
+  .hb-media-upload-progress {
+    display: grid;
+    gap: 0.4rem;
+    margin-top: 0.9rem;
+    padding: 0.75rem;
+    border: 1px solid var(--primary-low);
+    border-radius: 10px;
+    background: var(--primary-very-low);
+  }
+
+  .hb-media-upload-progress__label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: var(--font-down-1);
+    color: var(--primary);
+  }
+
+  .hb-media-upload-progress__bar {
+    height: 0.55rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--primary-low);
+  }
+
+  .hb-media-upload-progress__fill {
+    height: 100%;
+    min-width: 0.25rem;
+    border-radius: inherit;
+    background: var(--tertiary);
+    transition: width 180ms ease;
+  }
+
   .hb-media-library-actions-row {
     display: flex;
     gap: 0.5rem;
