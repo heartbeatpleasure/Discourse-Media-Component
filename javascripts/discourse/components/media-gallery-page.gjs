@@ -1975,9 +1975,14 @@ export default class MediaGalleryPage extends Component {
 
     if (status === 413) {
       const siteMaxMb = Number(this.uploadPolicy?.site_max_upload_mb || 0);
-      return siteMaxMb > 0
-        ? buildSiteUploadTooLargeMessage(this.uploadFile, siteMaxMb)
-        : "This file is too large to upload. The request was rejected before it could be processed.";
+      const actualBytes = Number(this.uploadFile?.size || 0);
+      const siteMaxBytes = siteMaxMb > 0 ? siteMaxMb * BYTES_PER_MB : 0;
+
+      if (siteMaxBytes > 0 && actualBytes > siteMaxBytes) {
+        return buildSiteUploadTooLargeMessage(this.uploadFile, siteMaxMb);
+      }
+
+      return "The upload request was rejected before it could be processed. If this site is behind a proxy such as Cloudflare, enable chunked uploads or use a smaller file.";
     }
 
     if (joinedErrors && (!errorCode || joinedErrors !== errorCode)) {
@@ -2000,7 +2005,7 @@ export default class MediaGalleryPage extends Component {
       case "invalid_upload_id":
         return "The upload reference is invalid. Please upload the file again.";
       case "chunked_uploads_disabled":
-        return "Large-file upload support is currently disabled. Please try a smaller file or contact staff.";
+        return "Large-file upload support is currently disabled. Refresh the page and try again, or use a smaller file.";
       case "too_many_active_upload_sessions":
         return joinedErrors || "Too many large uploads are already active for your account. Please wait or cancel another upload first.";
       case "too_many_global_upload_sessions":
@@ -2022,6 +2027,8 @@ export default class MediaGalleryPage extends Component {
       case "chunked_upload_complete_failed":
       case "discourse_upload_failed":
         return joinedErrors || "The large file upload could not be completed. Please try again.";
+      case "forbidden":
+        return joinedErrors || "The upload request was rejected. Please refresh the page and try again.";
       case "unsupported_file_type":
         return joinedErrors || buildUnsupportedFileTypeMessage(this.uploadFile, this.uploadPolicy);
       case "unsupported_file_extension":
@@ -2042,6 +2049,9 @@ export default class MediaGalleryPage extends Component {
       case "internal_error":
         return "Something went wrong while creating the media item. Please try again.";
       default:
+        if ((status === 403 || status === 404) && !errorCode) {
+          return "The upload request was rejected. Please refresh the page and try again, or contact staff if this keeps happening.";
+        }
         return joinedErrors || error?.message || I18n.t("media_gallery.errors.create_failed");
     }
   }
@@ -2856,6 +2866,36 @@ export default class MediaGalleryPage extends Component {
     }
   }
 
+  async refreshUploadPolicyForSubmit() {
+    try {
+      const res = await ajax("/media/config");
+      this.uploadPolicy = res?.upload_policy || null;
+      this.permissions = normalizePermissionsPayload(res?.permissions);
+      this.mediaConfigLoaded = true;
+      return true;
+    } catch (e) {
+      const status = Number(e?.jqXHR?.status || 0);
+
+      if (status === 403 || status === 404) {
+        this.uploadPolicy = null;
+        this.permissions = {
+          can_view: false,
+          can_upload: false,
+          access_blocked: false,
+          viewer_groups: [],
+          uploader_groups: [],
+        };
+        this.mediaConfigLoaded = true;
+        return false;
+      }
+
+      // Keep the last successfully loaded policy if this best-effort refresh fails.
+      // The actual upload request will still return a concrete error if the cached
+      // settings are stale.
+      return false;
+    }
+  }
+
   get chunkedUploadPolicy() {
     return this.uploadPolicy?.chunked_uploads || { enabled: false };
   }
@@ -3060,6 +3100,8 @@ export default class MediaGalleryPage extends Component {
     this.clearUploadFeedback();
     this.resetUploadProgress();
 
+    await this.refreshUploadPolicyForSubmit();
+
     if (!this.canUploadMedia) {
       this.errorMessage = this.uploadAccessMessage;
       return;
@@ -3128,11 +3170,8 @@ export default class MediaGalleryPage extends Component {
       this.updateUploadProgress(100, "Upload complete.");
       await this.completeSuccessfulUploadRegistration();
     } catch (e) {
-      const status = e?.jqXHR?.status;
       if (e?.hbUploadCancelled) {
         this.noticeMessage = "Upload cancelled.";
-      } else if (status === 404 || status === 403) {
-        this.errorMessage = I18n.t("media_gallery.errors.upload_not_allowed");
       } else {
         this.showUploadError(this.friendlyUploadErrorMessage(e));
       }
