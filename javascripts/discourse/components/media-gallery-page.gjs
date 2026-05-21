@@ -817,6 +817,7 @@ function createUploadCancelledError() {
 
 function shouldRetryChunkUpload(error) {
   const status = Number(error?.jqXHR?.status || 0);
+  if (status === 507) return false;
   return status === 0 || status === 408 || status === 429 || status >= 500;
 }
 
@@ -2002,6 +2003,12 @@ export default class MediaGalleryPage extends Component {
         return "Large-file upload support is currently disabled. Please try a smaller file or contact staff.";
       case "too_many_active_upload_sessions":
         return joinedErrors || "Too many large uploads are already active for your account. Please wait or cancel another upload first.";
+      case "too_many_global_upload_sessions":
+        return joinedErrors || "The server is already handling the maximum number of large uploads. Please wait and try again.";
+      case "chunked_upload_temp_storage_limit_reached":
+        return joinedErrors || "The server is temporarily low on upload workspace. Please wait and try again.";
+      case "upload_session_busy":
+        return joinedErrors || "This upload is already being finalized. Please wait a moment and try again.";
       case "upload_session_expired":
       case "upload_session_not_found":
         return joinedErrors || "The large upload session expired. Please start the upload again.";
@@ -2938,7 +2945,7 @@ export default class MediaGalleryPage extends Component {
       fd.append("part_number", String(partNumber));
       fd.append("chunk", chunk, `${file.name}.part-${partNumber}`);
 
-      await this.uploadChunkWithRetry(fd, partNumber);
+      await this.uploadChunkWithRetry(sessionId, fd, partNumber);
 
       this.updateUploadProgress(Math.round((partNumber / totalParts) * 92) + 2, `${progressPrefix} complete…`);
     }
@@ -2960,7 +2967,27 @@ export default class MediaGalleryPage extends Component {
     return completeRes;
   }
 
-  async uploadChunkWithRetry(formData, partNumber) {
+  async fetchChunkedUploadStatus(sessionId) {
+    const sid = String(sessionId || "").trim();
+    if (!sid) return null;
+
+    try {
+      return await ajax("/media/chunked/status", {
+        type: "GET",
+        data: { session_id: sid },
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  async chunkAlreadyUploaded(sessionId, partNumber) {
+    const status = await this.fetchChunkedUploadStatus(sessionId);
+    const uploadedParts = Array.isArray(status?.uploaded_parts) ? status.uploaded_parts : [];
+    return uploadedParts.map((value) => Number(value)).includes(Number(partNumber));
+  }
+
+  async uploadChunkWithRetry(sessionId, formData, partNumber) {
     const maxAttempts = 3;
     let lastError = null;
 
@@ -2978,6 +3005,14 @@ export default class MediaGalleryPage extends Component {
         });
       } catch (e) {
         lastError = e;
+
+        if (shouldRetryChunkUpload(e)) {
+          this.updateUploadProgress(this.uploadProgressPercent, `Checking chunk ${partNumber} upload status…`);
+          if (await this.chunkAlreadyUploaded(sessionId, partNumber)) {
+            return { ok: true, recovered: true, part_number: partNumber };
+          }
+        }
+
         if (attempt >= maxAttempts || !shouldRetryChunkUpload(e)) {
           throw e;
         }
