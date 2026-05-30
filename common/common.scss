@@ -376,9 +376,96 @@
     padding: 0.5rem;
   }
 
+  .hb-media-library-row__thumb--blurred {
+    img {
+      filter: blur(14px) saturate(0.85) brightness(0.9);
+      transform: scale(1.04);
+      transition: filter 0.18s ease, transform 0.18s ease;
+      will-change: filter, transform;
+    }
+  }
+
+  .hb-media-library-row__sensitiveOverlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+
+  .hb-media-library-row__sensitiveBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    max-width: 100%;
+    padding: 0.42rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.66);
+    color: #fff;
+    font-size: var(--font-down-1);
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    text-align: center;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+
+    .hb-media-library-row__sensitiveIcon {
+      position: relative;
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1em;
+      height: 1em;
+
+      &::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 0.12em;
+        height: 1.35em;
+        border-radius: 999px;
+        background: currentColor;
+        transform: translate(-50%, -50%) rotate(45deg);
+      }
+    }
+
+    .d-icon {
+      width: 1em;
+      height: 1em;
+    }
+
+    > span:not(.hb-media-library-row__sensitiveIcon) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .hb-media-library-row__thumbBtn:hover .hb-media-library-row__thumb--blurred img,
+    .hb-media-library-row__thumbBtn:focus-visible .hb-media-library-row__thumb--blurred img {
+      filter: blur(0) saturate(1) brightness(1);
+      transform: scale(1);
+    }
+
+    .hb-media-library-row__thumbBtn:hover .hb-media-library-row__sensitiveOverlay,
+    .hb-media-library-row__thumbBtn:focus-visible .hb-media-library-row__sensitiveOverlay {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+  }
+
   .hb-media-library-row__thumbOverlay {
     position: absolute;
     inset: 0;
+    z-index: 3;
     pointer-events: none;
   }
 

@@ -1098,7 +1098,12 @@ export default class MediaGalleryPage extends Component {
     this._stopPreviewIdleRevokeTimer();
     this._previewSecurity = null;
     this._previewStreamToken = null;
-    return { ...item, _hb_media_type: mt, _hb_display_ready: displayReady };
+    return {
+      ...item,
+      _hb_media_type: mt,
+      _hb_display_ready: displayReady,
+      _hb_blur_thumb: this._shouldBlurThumbnail(item, mt),
+    };
   }
 
   get previewMediaType() {
@@ -1768,6 +1773,26 @@ export default class MediaGalleryPage extends Component {
   get allowedTags() {
     const raw = this.siteSettings?.media_gallery_allowed_tags;
     return uniqStrings(normalizeListSetting(raw).map((t) => normalizeTagValue(t)).filter(Boolean));
+  }
+
+  get blurredThumbnailTags() {
+    const raw = this.siteSettings?.media_gallery_blurred_thumbnail_tags;
+    return uniqStrings(normalizeListSetting(raw).map((t) => normalizeTagValue(t)).filter(Boolean));
+  }
+
+  _shouldBlurThumbnail(item, mediaType = null) {
+    const mt = mediaType || this._normalizeMediaType(item?.media_type || item?.type || item?.mediaType);
+    if (mt !== "image" && mt !== "video") return false;
+
+    const blurTags = this.blurredThumbnailTags;
+    if (!blurTags.length) return false;
+
+    const blurTagSet = new Set(blurTags.map((t) => String(t || "").toLowerCase()));
+    const itemTags = normalizeListSetting(item?.tags || [])
+      .map((t) => normalizeTagValue(t))
+      .filter(Boolean);
+
+    return itemTags.some((tag) => blurTagSet.has(tag));
   }
 
   get uploadTermsUrl() {
@@ -6619,7 +6644,7 @@ toggleImageFullscreen(e) {
                 aria-label={{item.title}}
                 {{on "click" (fn this.openPreview item)}}
               >
-                <div class="hb-media-library-row__thumb {{if (or (not item._hb_display_ready) item._thumbFailed (not item.thumbnail_url)) "hb-media-library-row__thumb--placeholder"}}">
+                <div class="hb-media-library-row__thumb {{if (or (not item._hb_display_ready) item._thumbFailed (not item.thumbnail_url)) "hb-media-library-row__thumb--placeholder"}} {{if item._hb_blur_thumb "hb-media-library-row__thumb--blurred"}}">
                   {{#if (and (eq item._hb_media_type "audio") this.audioPlaceholderUrl item._hb_display_ready)}}
                     <img alt="" src={{this.audioPlaceholderUrl}} loading="lazy" decoding="async" />
                   {{else if (and item._hb_display_ready item.thumbnail_url (not item._thumbFailed))}}
@@ -6659,6 +6684,15 @@ toggleImageFullscreen(e) {
                         {{/if}}
                       {{/if}}
                     </span>
+                  {{/if}}
+
+                  {{#if (and item._hb_blur_thumb item._hb_display_ready item.thumbnail_url (not item._thumbFailed))}}
+                    <div class="hb-media-library-row__sensitiveOverlay" aria-hidden="true">
+                      <span class="hb-media-library-row__sensitiveBadge">
+                        <span class="hb-media-library-row__sensitiveIcon">{{icon "eye"}}</span>
+                        <span>{{i18n "media_gallery.blurred_thumbnail"}}</span>
+                      </span>
+                    </div>
                   {{/if}}
 
                   <div class="hb-media-library-row__thumbOverlay" aria-hidden="true">
