@@ -1785,6 +1785,12 @@ export default class MediaGalleryPage extends Component {
     const mt = mediaType || this._normalizeMediaType(item?.media_type || item?.type || item?.mediaType);
     if (mt !== "image" && mt !== "video") return false;
 
+    const forcedBlur = item?.force_blur_thumbnail;
+    const forcedBlurValue = String(forcedBlur ?? "").trim().toLowerCase();
+    if (forcedBlur === true || forcedBlur === 1 || forcedBlurValue === "true" || forcedBlurValue === "1") {
+      return true;
+    }
+
     const blurTags = this.blurredThumbnailTags;
     if (!blurTags.length) return false;
 
