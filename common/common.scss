@@ -1557,6 +1557,21 @@
     min-width: 80px;
   }
 
+  .hb-media-player__volume {
+    flex: 0 0 86px;
+    width: 86px;
+    min-width: 68px;
+  }
+
+  /* Mobile browsers often rely on hardware volume and give very limited
+     script control over media volume. Keep mute/unmute available there and
+     avoid crowding the custom controls. */
+  @media (hover: none), (pointer: coarse), (max-width: 640px) {
+    .hb-media-player__volume {
+      display: none;
+    }
+  }
+
   /* Make the controls easier to tap on small screens */
   @media (max-width: 900px) {
     .hb-media-player__controls {

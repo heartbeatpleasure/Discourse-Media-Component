@@ -963,6 +963,7 @@ export default class MediaGalleryPage extends Component {
   @tracked previewCurrentTime = 0;
   @tracked previewDuration = 0;
   @tracked previewMuted = false;
+  @tracked previewVolume = 1;
   @tracked previewIsFullscreen = false;
   @tracked previewPseudoFullscreen = false;
   @tracked previewOverlay = null;
@@ -4530,6 +4531,12 @@ get previewPanelStyle() {
     return this._pickPlayerIcon("volOff", VOLUME_OFF_ICON_CANDIDATES, "volume-mute");
   }
 
+  _normalizePreviewVolume(value, fallback = 1) {
+    const v = Number(value);
+    if (!Number.isFinite(v)) return fallback;
+    return Math.max(0, Math.min(1, v));
+  }
+
 _setPreviewAspect(width, height) {
   const w = Number(width);
   const h = Number(height);
@@ -4657,8 +4664,9 @@ onPreviewVideoMeta(e) {
     this.previewDuration = Number.isFinite(v?.duration) ? v.duration : 0;
     this.previewCurrentTime = Number.isFinite(v?.currentTime) ? v.currentTime : 0;
     this.previewMuted = !!v?.muted || v?.volume === 0;
-    const vv = Number(v?.volume);
-    if (Number.isFinite(vv) && vv > 0) {
+    const vv = this._normalizePreviewVolume(v?.volume, this.previewVolume);
+    this.previewVolume = vv;
+    if (vv > 0) {
       this._previewLastVolume = vv;
     }
     this.previewIsPlaying = !v?.paused;
@@ -4677,8 +4685,9 @@ onPreviewVideoMeta(e) {
     this.previewDuration = Number.isFinite(a?.duration) ? a.duration : 0;
     this.previewCurrentTime = Number.isFinite(a?.currentTime) ? a.currentTime : 0;
     this.previewMuted = !!a?.muted || a?.volume === 0;
-    const av = Number(a?.volume);
-    if (Number.isFinite(av) && av > 0) {
+    const av = this._normalizePreviewVolume(a?.volume, this.previewVolume);
+    this.previewVolume = av;
+    if (av > 0) {
       this._previewLastVolume = av;
     }
     this.previewIsPlaying = !a?.paused;
@@ -4762,7 +4771,14 @@ onPreviewVideoMeta(e) {
     const el = e?.target;
     if (!el) return;
     if (this._previewMediaEl && el !== this._previewMediaEl) return;
-    this.previewMuted = !!el.muted || el.volume === 0;
+
+    const volume = this._normalizePreviewVolume(el.volume, this.previewVolume);
+    this.previewVolume = volume;
+    this.previewMuted = !!el.muted || volume === 0;
+
+    if (!el.muted && volume > 0) {
+      this._previewLastVolume = volume;
+    }
   }
 
   
@@ -4942,6 +4958,30 @@ seekPreview(e) {
   }
 
   @action
+  setPreviewVolume(e) {
+    e?.stopPropagation?.();
+
+    const el = this._previewMediaEl;
+    const volume = this._normalizePreviewVolume(e?.target?.value, this.previewVolume);
+
+    this.previewVolume = volume;
+    if (volume > 0) {
+      this._previewLastVolume = volume;
+    }
+
+    if (!el) return;
+
+    try {
+      el.volume = volume;
+      el.muted = volume === 0;
+      this.previewMuted = !!el.muted || volume === 0;
+    } catch {
+      // Some mobile browsers do not allow script-controlled volume.
+      // Keep mute/unmute available and leave hardware volume control to the device.
+    }
+  }
+
+  @action
   togglePreviewMute(e) {
     e?.preventDefault?.();
     e?.stopPropagation?.();
@@ -4976,7 +5016,9 @@ seekPreview(e) {
         el.muted = true;
       }
 
-      this.previewMuted = !!el.muted || el.volume === 0;
+      const volume = this._normalizePreviewVolume(el.volume, this.previewVolume);
+      this.previewVolume = volume;
+      this.previewMuted = !!el.muted || volume === 0;
     } catch {
       // ignore
     }
@@ -5862,6 +5904,16 @@ toggleImageFullscreen(e) {
 
     // Ensure we have a sensible default aspect ratio before metadata is available.
     if (this.previewMediaType === "video" || this.previewMediaType === "audio") {
+      const volume = this._normalizePreviewVolume(this.previewVolume, this._previewLastVolume || 1);
+      try {
+        el.volume = volume;
+        el.muted = volume === 0;
+        this.previewMuted = !!el.muted || volume === 0;
+        this.previewVolume = volume;
+      } catch {
+        // Some mobile browsers do not allow script-controlled volume.
+      }
+
       if (!Number.isFinite(this.previewAr) || this.previewAr === 1) {
         this._setPreviewAspect(16, 9);
       }
@@ -5900,6 +5952,7 @@ toggleImageFullscreen(e) {
     this.previewCurrentTime = 0;
     this.previewDuration = 0;
     this.previewMuted = false;
+    this.previewVolume = this._normalizePreviewVolume(this._previewLastVolume, 1);
     this.previewIsFullscreen = false;
     this.previewPseudoFullscreen = false;
     this.previewOverlay = null;
@@ -6019,6 +6072,7 @@ toggleImageFullscreen(e) {
     this.previewCurrentTime = 0;
     this.previewDuration = 0;
     this.previewMuted = false;
+    this.previewVolume = this._normalizePreviewVolume(this._previewLastVolume, 1);
     this.previewIsFullscreen = false;
     this.previewPseudoFullscreen = false;
 
@@ -7037,6 +7091,21 @@ toggleImageFullscreen(e) {
                             {{/if}}
                           </button>
 
+                          <input
+                            class="hb-media-player__volume"
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={{this.previewVolume}}
+                            aria-label="Volume"
+                            title="Volume"
+                            {{on "input" this.setPreviewVolume}}
+                            {{on "change" this.setPreviewVolume}}
+                            {{on "mousedown" this.stopEvent}}
+                            {{on "touchstart" this.stopEvent}}
+                          />
+
                           <button
                             class="btn btn-icon hb-media-player__btn"
                             type="button"
@@ -7156,6 +7225,21 @@ toggleImageFullscreen(e) {
                               </svg>
                             {{/if}}
                           </button>
+
+                          <input
+                            class="hb-media-player__volume"
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={{this.previewVolume}}
+                            aria-label="Volume"
+                            title="Volume"
+                            {{on "input" this.setPreviewVolume}}
+                            {{on "change" this.setPreviewVolume}}
+                            {{on "mousedown" this.stopEvent}}
+                            {{on "touchstart" this.stopEvent}}
+                          />
                         </div>
                       </div>
                     {{/if}}
