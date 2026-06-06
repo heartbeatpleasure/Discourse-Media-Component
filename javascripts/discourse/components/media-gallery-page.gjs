@@ -5907,7 +5907,7 @@ toggleImageFullscreen(e) {
       const volume = this._normalizePreviewVolume(this.previewVolume, this._previewLastVolume || 1);
       try {
         el.volume = volume;
-        el.muted = volume === 0;
+        el.muted = this.previewMuted || volume === 0;
         this.previewMuted = !!el.muted || volume === 0;
         this.previewVolume = volume;
       } catch {
@@ -7071,40 +7071,43 @@ toggleImageFullscreen(e) {
                             {{on "touchstart" this.stopEvent}}
                           />
 
-                          <button
-                            class="btn btn-icon hb-media-player__btn"
-                            type="button"
-                            aria-label={{if this.previewMuted "Unmute" "Mute"}}
-                            {{on "click" this.togglePreviewMute}}
-                          >
-                            {{#if this.previewMuted}}
-                              <svg class="hb-media-player__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path fill="currentColor" d="M11 4.5v15L6.5 15H3v-6h3.5L11 4.5z"></path>
-                                <path fill="currentColor" d="M15.2 9.2a1 1 0 0 1 1.4 0L21 13.6a1 1 0 0 1-1.4 1.4l-4.4-4.4a1 1 0 0 1 0-1.4z"></path>
-                                <path fill="currentColor" d="M21 10.6a1 1 0 0 1 0 1.4l-4.4 4.4a1 1 0 1 1-1.4-1.4l4.4-4.4a1 1 0 0 1 1.4 0z"></path>
-                              </svg>
-                            {{else}}
-                              <svg class="hb-media-player__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path fill="currentColor" d="M11 4.5v15L6.5 15H3v-6h3.5L11 4.5z"></path>
-                                <path fill="currentColor" d="M14.7 8.3a1 1 0 0 1 1.4 0 6.5 6.5 0 0 1 0 9.4 1 1 0 0 1-1.4-1.4 4.5 4.5 0 0 0 0-6.6 1 1 0 0 1 0-1.4z"></path>
-                              </svg>
-                            {{/if}}
-                          </button>
+                          <div class="hb-media-player__volumeGroup" role="group" aria-label="Volume">
+                            <button
+                              class="btn btn-icon hb-media-player__btn"
+                              type="button"
+                              aria-label={{if this.previewMuted "Unmute" "Mute"}}
+                              title={{if this.previewMuted "Unmute" "Mute"}}
+                              {{on "click" this.togglePreviewMute}}
+                            >
+                              {{#if this.previewMuted}}
+                                <svg class="hb-media-player__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                  <path fill="currentColor" d="M11 4.5v15L6.5 15H3v-6h3.5L11 4.5z"></path>
+                                  <path fill="currentColor" d="M15.2 9.2a1 1 0 0 1 1.4 0L21 13.6a1 1 0 0 1-1.4 1.4l-4.4-4.4a1 1 0 0 1 0-1.4z"></path>
+                                  <path fill="currentColor" d="M21 10.6a1 1 0 0 1 0 1.4l-4.4 4.4a1 1 0 1 1-1.4-1.4l4.4-4.4a1 1 0 0 1 1.4 0z"></path>
+                                </svg>
+                              {{else}}
+                                <svg class="hb-media-player__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                  <path fill="currentColor" d="M11 4.5v15L6.5 15H3v-6h3.5L11 4.5z"></path>
+                                  <path fill="currentColor" d="M14.7 8.3a1 1 0 0 1 1.4 0 6.5 6.5 0 0 1 0 9.4 1 1 0 0 1-1.4-1.4 4.5 4.5 0 0 0 0-6.6 1 1 0 0 1 0-1.4z"></path>
+                                </svg>
+                              {{/if}}
+                            </button>
 
-                          <input
-                            class="hb-media-player__volume"
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            value={{this.previewVolume}}
-                            aria-label="Volume"
-                            title="Volume"
-                            {{on "input" this.setPreviewVolume}}
-                            {{on "change" this.setPreviewVolume}}
-                            {{on "mousedown" this.stopEvent}}
-                            {{on "touchstart" this.stopEvent}}
-                          />
+                            <input
+                              class="hb-media-player__volume"
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.01"
+                              value={{this.previewVolume}}
+                              aria-label="Volume"
+                              title="Volume"
+                              {{on "input" this.setPreviewVolume}}
+                              {{on "change" this.setPreviewVolume}}
+                              {{on "mousedown" this.stopEvent}}
+                              {{on "touchstart" this.stopEvent}}
+                            />
+                          </div>
 
                           <button
                             class="btn btn-icon hb-media-player__btn"
@@ -7205,41 +7208,44 @@ toggleImageFullscreen(e) {
                             {{on "touchstart" this.stopEvent}}
                           />
 
-                          <button
-                            class="btn btn-icon hb-media-player__btn"
-                            type="button"
-                            aria-label={{if this.previewMuted "Unmute" "Mute"}}
-                            {{on "click" this.togglePreviewMute}}
-                          >
-                            {{!-- Use inline SVG for maximum compatibility across Discourse icon sets --}}
-                            {{#if this.previewMuted}}
-                              <svg class="hb-media-player__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path fill="currentColor" d="M11 4.5v15L6.5 15H3v-6h3.5L11 4.5z"></path>
-                                <path fill="currentColor" d="M15.2 9.2a1 1 0 0 1 1.4 0L21 13.6a1 1 0 0 1-1.4 1.4l-4.4-4.4a1 1 0 0 1 0-1.4z"></path>
-                                <path fill="currentColor" d="M21 10.6a1 1 0 0 1 0 1.4l-4.4 4.4a1 1 0 1 1-1.4-1.4l4.4-4.4a1 1 0 0 1 1.4 0z"></path>
-                              </svg>
-                            {{else}}
-                              <svg class="hb-media-player__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path fill="currentColor" d="M11 4.5v15L6.5 15H3v-6h3.5L11 4.5z"></path>
-                                <path fill="currentColor" d="M14.7 8.3a1 1 0 0 1 1.4 0 6.5 6.5 0 0 1 0 9.4 1 1 0 0 1-1.4-1.4 4.5 4.5 0 0 0 0-6.6 1 1 0 0 1 0-1.4z"></path>
-                              </svg>
-                            {{/if}}
-                          </button>
+                          <div class="hb-media-player__volumeGroup" role="group" aria-label="Volume">
+                            <button
+                              class="btn btn-icon hb-media-player__btn"
+                              type="button"
+                              aria-label={{if this.previewMuted "Unmute" "Mute"}}
+                              title={{if this.previewMuted "Unmute" "Mute"}}
+                              {{on "click" this.togglePreviewMute}}
+                            >
+                              {{!-- Use inline SVG for maximum compatibility across Discourse icon sets --}}
+                              {{#if this.previewMuted}}
+                                <svg class="hb-media-player__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                  <path fill="currentColor" d="M11 4.5v15L6.5 15H3v-6h3.5L11 4.5z"></path>
+                                  <path fill="currentColor" d="M15.2 9.2a1 1 0 0 1 1.4 0L21 13.6a1 1 0 0 1-1.4 1.4l-4.4-4.4a1 1 0 0 1 0-1.4z"></path>
+                                  <path fill="currentColor" d="M21 10.6a1 1 0 0 1 0 1.4l-4.4 4.4a1 1 0 1 1-1.4-1.4l4.4-4.4a1 1 0 0 1 1.4 0z"></path>
+                                </svg>
+                              {{else}}
+                                <svg class="hb-media-player__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                  <path fill="currentColor" d="M11 4.5v15L6.5 15H3v-6h3.5L11 4.5z"></path>
+                                  <path fill="currentColor" d="M14.7 8.3a1 1 0 0 1 1.4 0 6.5 6.5 0 0 1 0 9.4 1 1 0 0 1-1.4-1.4 4.5 4.5 0 0 0 0-6.6 1 1 0 0 1 0-1.4z"></path>
+                                </svg>
+                              {{/if}}
+                            </button>
 
-                          <input
-                            class="hb-media-player__volume"
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            value={{this.previewVolume}}
-                            aria-label="Volume"
-                            title="Volume"
-                            {{on "input" this.setPreviewVolume}}
-                            {{on "change" this.setPreviewVolume}}
-                            {{on "mousedown" this.stopEvent}}
-                            {{on "touchstart" this.stopEvent}}
-                          />
+                            <input
+                              class="hb-media-player__volume"
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.01"
+                              value={{this.previewVolume}}
+                              aria-label="Volume"
+                              title="Volume"
+                              {{on "input" this.setPreviewVolume}}
+                              {{on "change" this.setPreviewVolume}}
+                              {{on "mousedown" this.stopEvent}}
+                              {{on "touchstart" this.stopEvent}}
+                            />
+                          </div>
                         </div>
                       </div>
                     {{/if}}

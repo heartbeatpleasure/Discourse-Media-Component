@@ -1557,16 +1557,90 @@
     min-width: 80px;
   }
 
+  .hb-media-player__volumeGroup {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.12rem 0.42rem 0.12rem 0.12rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.28);
+    transition: background 0.15s ease;
+
+    &:hover,
+    &:focus-within {
+      background: rgba(0, 0, 0, 0.42);
+    }
+
+    .hb-media-player__btn.btn.btn-icon {
+      width: 30px;
+      height: 30px;
+      background: transparent;
+
+      &:hover,
+      &:focus-visible {
+        background: rgba(255, 255, 255, 0.14);
+      }
+    }
+  }
+
   .hb-media-player__volume {
-    flex: 0 0 86px;
-    width: 86px;
-    min-width: 68px;
+    flex: 0 0 88px;
+    width: 88px;
+    min-width: 72px;
+    height: 18px;
+    margin: 0;
+    cursor: pointer;
+    appearance: none;
+    background: transparent;
+  }
+
+  .hb-media-player__volume::-webkit-slider-runnable-track {
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.38);
+  }
+
+  .hb-media-player__volume::-webkit-slider-thumb {
+    width: 13px;
+    height: 13px;
+    margin-top: -4px;
+    border: 0;
+    border-radius: 999px;
+    appearance: none;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  }
+
+  .hb-media-player__volume::-moz-range-track {
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.38);
+  }
+
+  .hb-media-player__volume::-moz-range-thumb {
+    width: 13px;
+    height: 13px;
+    border: 0;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  }
+
+  .hb-media-player__volume:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.95);
+    outline-offset: 3px;
   }
 
   /* Mobile browsers often rely on hardware volume and give very limited
      script control over media volume. Keep mute/unmute available there and
      avoid crowding the custom controls. */
   @media (hover: none), (pointer: coarse), (max-width: 640px) {
+    .hb-media-player__volumeGroup {
+      padding: 0;
+      background: transparent;
+    }
+
     .hb-media-player__volume {
       display: none;
     }
