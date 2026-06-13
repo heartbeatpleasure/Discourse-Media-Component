@@ -509,7 +509,7 @@
     position: relative;
 
     @media (min-width: 721px) {
-      padding-right: 116px;
+      padding-right: 176px;
     }
   }
 
@@ -538,6 +538,8 @@
     font-size: var(--font-up-1);
     line-height: 1.2;
     color: var(--primary);
+    flex: 1 1 auto;
+    max-width: 100%;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -559,6 +561,8 @@
     align-items: center;
     justify-content: flex-end;
     gap: 0.5rem;
+    flex: 0 0 auto;
+    min-width: 0;
     flex-wrap: wrap;
   }
 
@@ -568,7 +572,7 @@
       position: absolute;
       top: 0;
       right: -8px;
-      width: 108px;
+      width: 152px;
       align-items: stretch;
       justify-content: flex-start;
     }
@@ -666,9 +670,14 @@
       position: absolute;
       right: 0;
       bottom: 4px;
-      width: 108px;
+      width: 152px;
       margin-left: 0;
       justify-content: flex-end;
+
+      .hb-media-likeCluster {
+        justify-content: flex-end;
+        flex-wrap: nowrap;
+      }
     }
   }
 
@@ -742,7 +751,8 @@
     align-items: center;
     justify-content: flex-end;
     gap: 0.25rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    min-width: 0;
   }
 
   .hb-media-likeCluster--lg {
@@ -2287,7 +2297,9 @@
   the media modal backdrop instead of behind the dimmed page.
 */
 html.hb-media-preview-open,
-body.hb-media-preview-open {
+body.hb-media-preview-open,
+html.hb-media-like-details-open,
+body.hb-media-like-details-open {
   #d-menu-portals,
   .d-menu-portals,
   .fk-d-menu-modal,
@@ -2427,6 +2439,7 @@ body.hb-media-preview-open {
   @media (max-width: 600px) {
     .hb-media-likeCluster {
       justify-content: flex-start;
+      flex-wrap: wrap;
     }
 
     .hb-media-likeCluster--lg {

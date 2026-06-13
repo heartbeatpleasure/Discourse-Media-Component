@@ -1275,6 +1275,7 @@ export default class MediaGalleryPage extends Component {
     this._stopPreviewOverlayRotation();
     this._stopPreviewIdleRevokeTimer();
     this._setPreviewBodyClass(false);
+    this._setLikeDetailsBodyClass(false);
   }
 
   _setPreviewBodyClass(enabled) {
@@ -1284,6 +1285,20 @@ export default class MediaGalleryPage extends Component {
       document.body?.classList?.toggle("hb-media-preview-open", active);
 
       if (!active) {
+        this._clearNativeCardLayer();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  _setLikeDetailsBodyClass(enabled) {
+    try {
+      const active = Boolean(enabled);
+      document.documentElement?.classList?.toggle("hb-media-like-details-open", active);
+      document.body?.classList?.toggle("hb-media-like-details-open", active);
+
+      if (!active && !this.previewOpen) {
         this._clearNativeCardLayer();
       }
     } catch {
@@ -3850,14 +3865,13 @@ export default class MediaGalleryPage extends Component {
   }
 
   normalizeLikeUsersResponse(res) {
-    let candidates = [];
-    if (Array.isArray(res?.users)) {
-      candidates = res.users;
-    } else if (Array.isArray(res?.likers)) {
-      candidates = res.likers;
-    } else if (Array.isArray(res?.likes)) {
-      candidates = res.likes;
-    }
+    const candidates = Array.isArray(res?.users)
+      ? res.users
+      : Array.isArray(res?.likers)
+        ? res.likers
+        : Array.isArray(res?.likes)
+          ? res.likes
+          : [];
 
     return candidates.map((user) => this.normalizeLikeUserPayload(user)).filter(Boolean);
   }
@@ -4466,6 +4480,7 @@ export default class MediaGalleryPage extends Component {
 
     const publicId = item.public_id;
     this.likesModalOpen = true;
+    this._setLikeDetailsBodyClass(true);
     this.likesModalItem = item;
     this.likesModalUsers = [];
     this.likesModalTotal = parseInt(item.likes_count || 0, 10) || 0;
@@ -4478,13 +4493,11 @@ export default class MediaGalleryPage extends Component {
       const normalizedUsers = this.normalizeLikeUsersResponse(res);
       const currentUserFallback = this.optimisticCurrentLikeUser(item);
 
-      if (normalizedUsers.length) {
-        this.likesModalUsers = normalizedUsers;
-      } else if (currentUserFallback) {
-        this.likesModalUsers = [currentUserFallback];
-      } else {
-        this.likesModalUsers = [];
-      }
+      this.likesModalUsers = normalizedUsers.length
+        ? normalizedUsers
+        : currentUserFallback
+          ? [currentUserFallback]
+          : [];
       this.likesModalTotal = parseInt(res?.total ?? this.likesModalUsers.length, 10) || this.likesModalUsers.length;
     } catch (e) {
       this.likesModalUsers = [];
@@ -4501,6 +4514,7 @@ export default class MediaGalleryPage extends Component {
     ev?.stopPropagation?.();
 
     this.likesModalOpen = false;
+    this._setLikeDetailsBodyClass(false);
     this.likesModalItem = null;
     this.likesModalUsers = [];
     this.likesModalTotal = 0;
@@ -7847,7 +7861,7 @@ toggleImageFullscreen(e) {
                       {{/if}}
                     </span>
                     <span class="hb-media-like-details__names">
-                      <span class="hb-media-like-details__displayName">@{{user.displayUsername}}</span>
+                      <span class="hb-media-like-details__displayName">{{user.displayUsername}}</span>
                       {{#if user.secondaryName}}
                         <span class="hb-media-like-details__username">{{user.secondaryName}}</span>
                       {{/if}}
