@@ -3836,7 +3836,15 @@ export default class MediaGalleryPage extends Component {
   }
 
   likeUserDisplayName(user) {
-    return normalizeNoticeText(user?.name, { maxLength: 120 }) || this.likeUserUsername(user);
+    return this.likeUserUsername(user);
+  }
+
+  likeUserSecondaryName(user) {
+    const name = normalizeNoticeText(user?.name, { maxLength: 120 });
+    const username = this.likeUserUsername(user);
+    if (!name || name.toLowerCase() === username.toLowerCase()) return "";
+
+    return name;
   }
 
   @action
@@ -7756,10 +7764,6 @@ toggleImageFullscreen(e) {
           </div>
 
           <div class="hb-media-library-modal-body hb-media-like-details">
-            {{#if this.likesModalItem.title}}
-              <div class="hb-media-like-details__itemTitle">{{this.likesModalItem.title}}</div>
-            {{/if}}
-
             {{#if this.likesModalLoading}}
               <div class="hb-media-like-details__state">{{i18n "media_gallery.like_details_loading"}}</div>
             {{else if this.likesModalError}}
@@ -7782,8 +7786,10 @@ toggleImageFullscreen(e) {
                       {{/if}}
                     </span>
                     <span class="hb-media-like-details__names">
-                      <span class="hb-media-like-details__displayName">{{this.likeUserDisplayName user}}</span>
-                      <span class="hb-media-like-details__username">@{{this.likeUserUsername user}}</span>
+                      <span class="hb-media-like-details__displayName">@{{this.likeUserDisplayName user}}</span>
+                      {{#if (this.likeUserSecondaryName user)}}
+                        <span class="hb-media-like-details__username">{{this.likeUserSecondaryName user}}</span>
+                      {{/if}}
                     </span>
                   </a>
                 {{/each}}
