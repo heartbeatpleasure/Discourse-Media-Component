@@ -429,6 +429,15 @@ function normalizeCommentsPayload(raw) {
   };
 }
 
+function normalizeLikesPayload(raw) {
+  const visibility = String(raw?.visibility || "owner").trim().toLowerCase();
+
+  return {
+    enabled: raw?.enabled !== false,
+    visibility: ["owner", "everyone"].includes(visibility) ? visibility : "owner",
+  };
+}
+
 function mediaCommentAuthor(comment) {
   const author = comment?.user || comment?.comment_author || comment?.author;
   return author && typeof author === "object" ? author : {};
@@ -923,6 +932,7 @@ export default class MediaGalleryPage extends Component {
   @tracked permissions = null;
   @tracked reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
   @tracked commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library", edit_enabled: false, edit_window_minutes: DEFAULT_COMMENT_EDIT_WINDOW_MINUTES, can_edit: false, likes_enabled: false, can_like: false, reports_enabled: false, can_report: false, report_reasons: COMMENT_REPORT_REASON_FALLBACKS };
+  @tracked likesConfig = { enabled: false, visibility: "owner" };
   @tracked mediaConfigLoaded = false;
   @tracked uploadWatermarkEnabled = true;
   @tracked uploadWatermarkPresetId = "";
@@ -993,6 +1003,14 @@ export default class MediaGalleryPage extends Component {
   @tracked reportMessage = "";
   @tracked reportBusy = false;
   @tracked reportError = "";
+
+  // Like details modal
+  @tracked likesModalOpen = false;
+  @tracked likesModalItem = null;
+  @tracked likesModalUsers = [];
+  @tracked likesModalTotal = 0;
+  @tracked likesModalLoading = false;
+  @tracked likesModalError = "";
 
   // Delete confirmation modal
   @tracked deleteOpen = false;
@@ -1182,6 +1200,7 @@ export default class MediaGalleryPage extends Component {
       this.permissions = normalizePermissionsPayload(res?.permissions);
       this.reportsConfig = normalizeReportsPayload(res?.reports);
       this.commentsConfig = normalizeCommentsPayload(res?.comments);
+      this.likesConfig = normalizeLikesPayload(res?.likes);
 
       // Defaults for the upload UI
       if (this.watermarkConfig?.enabled) {
@@ -1198,6 +1217,7 @@ export default class MediaGalleryPage extends Component {
       this.uploadPolicy = null;
       this.reportsConfig = { enabled: false, reasons: REPORT_REASON_FALLBACKS };
       this.commentsConfig = { enabled: false, can_comment: false, page_size: DEFAULT_COMMENTS_PAGE_SIZE, max_length: DEFAULT_COMMENT_MAX_LENGTH, deep_link_path: "/media-library", edit_enabled: false, edit_window_minutes: DEFAULT_COMMENT_EDIT_WINDOW_MINUTES, can_edit: false, likes_enabled: false, can_like: false, reports_enabled: false, can_report: false, report_reasons: COMMENT_REPORT_REASON_FALLBACKS };
+      this.likesConfig = { enabled: false, visibility: "owner" };
 
       if (status === 403 || status === 404) {
         this.permissions = {
@@ -3793,6 +3813,37 @@ export default class MediaGalleryPage extends Component {
     this._triggerNativeUserCard(username, event);
   }
 
+  likeUserUsername(user) {
+    return this.cleanUsername(user?.username || "unknown");
+  }
+
+  likeUserProfileUrl(user) {
+    const direct = normalizeSafeLinkUrl(user?.profile_url);
+    if (direct) return direct;
+    return `/u/${this.likeUserUsername(user)}`;
+  }
+
+  likeUserAvatarUrl(user) {
+    const template = user?.avatar_template;
+    if (!template) return null;
+
+    const url = String(template).replace("{size}", "45");
+    if (url.startsWith("//")) {
+      const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
+      return `${protocol}${url}`;
+    }
+    return url;
+  }
+
+  likeUserDisplayName(user) {
+    return normalizeNoticeText(user?.name, { maxLength: 120 }) || this.likeUserUsername(user);
+  }
+
+  @action
+  handleLikeUserClick(user, event) {
+    this._triggerNativeUserCard(this.likeUserUsername(user), event);
+  }
+
   _normalizePreviewComment(comment, publicId) {
     if (!comment || typeof comment !== "object") return comment;
 
@@ -4327,6 +4378,68 @@ export default class MediaGalleryPage extends Component {
   }
 
   // -----------------------
+  // Like details
+  // -----------------------
+  canOpenLikeDetails = (item) => {
+    const count = parseInt(item?.likes_count || 0, 10) || 0;
+    return !!(this.likesConfig?.enabled && item?.can_view_likes === true && item?.public_id && count > 0);
+  };
+
+  get likesModalLimitedNotice() {
+    const shown = this.likesModalUsers?.length || 0;
+    const total = parseInt(this.likesModalTotal || 0, 10) || 0;
+    if (!total || shown >= total) return "";
+
+    try {
+      return I18n.t("media_gallery.like_details_limited", { shown, total });
+    } catch {
+      return `Showing ${shown} of ${total} likes.`;
+    }
+  }
+
+  @action
+  async openLikeDetails(item, ev) {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+
+    if (!this.canOpenLikeDetails(item) || this.likesModalLoading) return;
+
+    const publicId = item.public_id;
+    this.likesModalOpen = true;
+    this.likesModalItem = item;
+    this.likesModalUsers = [];
+    this.likesModalTotal = parseInt(item.likes_count || 0, 10) || 0;
+    this.likesModalLoading = true;
+    this.likesModalError = "";
+
+    try {
+      const res = await ajax(`/media/${publicId}/likes`, { type: "GET", data: { limit: 50 } });
+      this.likesModalUsers = Array.isArray(res?.users) ? res.users : [];
+      this.likesModalTotal = parseInt(res?.total ?? this.likesModalUsers.length, 10) || this.likesModalUsers.length;
+    } catch (e) {
+      this.likesModalError =
+        e?.jqXHR?.responseJSON?.message ||
+        e?.jqXHR?.responseJSON?.errors?.join(", ") ||
+        e?.message ||
+        I18n.t("media_gallery.like_details_error");
+    } finally {
+      this.likesModalLoading = false;
+    }
+  }
+
+  @action
+  closeLikeDetails(ev) {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+
+    this.likesModalOpen = false;
+    this.likesModalItem = null;
+    this.likesModalUsers = [];
+    this.likesModalTotal = 0;
+    this.likesModalError = "";
+  }
+
+  // -----------------------
   // Like / Unlike
   // -----------------------
   _updateItemByPublicId(publicId, updates) {
@@ -4374,8 +4487,22 @@ export default class MediaGalleryPage extends Component {
     });
 
     try {
-      await ajax(endpoint, { type: "POST" });
-      this._updateItemByPublicId(publicId, { _likePending: false });
+      const res = await ajax(endpoint, { type: "POST" });
+      const serverLiked = res?.liked;
+      const serverCount = parseInt(res?.likes_count, 10);
+      const updates = { _likePending: false };
+
+      if (serverLiked === true || serverLiked === false) {
+        updates.liked = serverLiked;
+      }
+      if (Number.isFinite(serverCount)) {
+        updates.likes_count = Math.max(0, serverCount);
+      }
+      if (res?.can_view_likes === true || res?.can_view_likes === false) {
+        updates.can_view_likes = res.can_view_likes;
+      }
+
+      this._updateItemByPublicId(publicId, updates);
     } catch (e) {
       // Roll back on error
       this._updateItemByPublicId(publicId, {
@@ -6802,16 +6929,30 @@ toggleImageFullscreen(e) {
                         {{/if}}
                       </div>
                     {{else}}
-                      <button
-                        class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
-                        type="button"
-                        disabled={{item._likePending}}
-                        aria-label={{if item.liked "Unlike" "Like"}}
-                        {{on "click" (fn this.toggleLike item)}}
-                      >
-                        <span class="hb-media-like__count">{{item.likes_count}}</span>
-                        {{icon (if item.liked "heart" "far-heart")}}
-                      </button>
+                      <div class="hb-media-likeCluster">
+                        <button
+                          class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
+                          type="button"
+                          disabled={{item._likePending}}
+                          aria-label={{if item.liked "Unlike" "Like"}}
+                          {{on "click" (fn this.toggleLike item)}}
+                        >
+                          <span class="hb-media-like__count">{{item.likes_count}}</span>
+                          {{icon (if item.liked "heart" "far-heart")}}
+                        </button>
+                        {{#if (this.canOpenLikeDetails item)}}
+                          <button
+                            class="hb-media-likeDetailsBtn"
+                            type="button"
+                            title={{i18n "media_gallery.like_details_title"}}
+                            aria-label={{i18n "media_gallery.like_details_title"}}
+                            {{on "click" (fn this.openLikeDetails item)}}
+                          >
+                            {{icon "users"}}
+                            <span>{{i18n "media_gallery.like_details_short"}}</span>
+                          </button>
+                        {{/if}}
+                      </div>
                     {{/if}}
                   </div>
                 </div>
@@ -6882,16 +7023,30 @@ toggleImageFullscreen(e) {
 
                     {{#if this.isMine}}
                       <div class={{concat "hb-media-library-row__footerActions" (if this.isMine " hb-media-library-row__footerActions--mine" "")}}>
-                        <button
-                          class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
-                          type="button"
-                          disabled={{item._likePending}}
-                          aria-label={{if item.liked "Unlike" "Like"}}
-                          {{on "click" (fn this.toggleLike item)}}
-                        >
-                          <span class="hb-media-like__count">{{item.likes_count}}</span>
-                          {{icon (if item.liked "heart" "far-heart")}}
-                        </button>
+                        <div class="hb-media-likeCluster">
+                          <button
+                            class={{concat "hb-media-like " (if item.liked "is-liked " "") (if item._likePending "is-pending" "")}}
+                            type="button"
+                            disabled={{item._likePending}}
+                            aria-label={{if item.liked "Unlike" "Like"}}
+                            {{on "click" (fn this.toggleLike item)}}
+                          >
+                            <span class="hb-media-like__count">{{item.likes_count}}</span>
+                            {{icon (if item.liked "heart" "far-heart")}}
+                          </button>
+                          {{#if (this.canOpenLikeDetails item)}}
+                            <button
+                              class="hb-media-likeDetailsBtn"
+                              type="button"
+                              title={{i18n "media_gallery.like_details_title"}}
+                              aria-label={{i18n "media_gallery.like_details_title"}}
+                              {{on "click" (fn this.openLikeDetails item)}}
+                            >
+                              {{icon "users"}}
+                              <span>{{i18n "media_gallery.like_details_short"}}</span>
+                            </button>
+                          {{/if}}
+                        </div>
                       </div>
                     {{/if}}
                   </div>
@@ -7556,19 +7711,88 @@ toggleImageFullscreen(e) {
                       </button>
                     {{/if}}
 
-                    <button
-                      class={{concat "hb-media-like hb-media-like--lg " (if this.previewItem.liked "is-liked " "") (if this.previewItem._likePending "is-pending" "")}}
-                      type="button"
-                      disabled={{this.previewItem._likePending}}
-                      aria-label={{if this.previewItem.liked "Unlike" "Like"}}
-                      {{on "click" (fn this.toggleLike this.previewItem)}}
-                    >
-                      <span class="hb-media-like__count">{{this.previewItem.likes_count}}</span>
-                      {{icon (if this.previewItem.liked "heart" "far-heart")}}
-                    </button>
+                    <div class="hb-media-likeCluster hb-media-likeCluster--lg">
+                      <button
+                        class={{concat "hb-media-like hb-media-like--lg " (if this.previewItem.liked "is-liked " "") (if this.previewItem._likePending "is-pending" "")}}
+                        type="button"
+                        disabled={{this.previewItem._likePending}}
+                        aria-label={{if this.previewItem.liked "Unlike" "Like"}}
+                        {{on "click" (fn this.toggleLike this.previewItem)}}
+                      >
+                        <span class="hb-media-like__count">{{this.previewItem.likes_count}}</span>
+                        {{icon (if this.previewItem.liked "heart" "far-heart")}}
+                      </button>
+                      {{#if (this.canOpenLikeDetails this.previewItem)}}
+                        <button
+                          class="hb-media-likeDetailsBtn hb-media-likeDetailsBtn--lg"
+                          type="button"
+                          title={{i18n "media_gallery.like_details_title"}}
+                          aria-label={{i18n "media_gallery.like_details_title"}}
+                          {{on "click" (fn this.openLikeDetails this.previewItem)}}
+                        >
+                          {{icon "users"}}
+                          <span>{{i18n "media_gallery.like_details_short"}}</span>
+                        </button>
+                      {{/if}}
+                    </div>
                   </div>
                 </div>
               </div>
+            {{/if}}
+          </div>
+        </div>
+      </div>
+    {{/if}}
+
+    {{!-- Like details modal --}}
+    {{#if this.likesModalOpen}}
+      <div class="hb-media-library-modal-backdrop hb-media-like-details-backdrop" role="dialog" aria-modal="true" {{on "click" this.closeLikeDetails}}>
+        <div class="hb-media-library-modal hb-media-library-modal--form hb-media-like-details-modal" {{on "click" this.stopBackdropClick}}>
+          <div class="hb-media-library-modal-header">
+            <div class="title">{{i18n "media_gallery.like_details_modal_title"}}</div>
+            <button class="btn btn-default" type="button" {{on "click" this.closeLikeDetails}}>
+              {{i18n "media_gallery.close"}}
+            </button>
+          </div>
+
+          <div class="hb-media-library-modal-body hb-media-like-details">
+            {{#if this.likesModalItem.title}}
+              <div class="hb-media-like-details__itemTitle">{{this.likesModalItem.title}}</div>
+            {{/if}}
+
+            {{#if this.likesModalLoading}}
+              <div class="hb-media-like-details__state">{{i18n "media_gallery.like_details_loading"}}</div>
+            {{else if this.likesModalError}}
+              <div class="hb-media-like-details__error">{{this.likesModalError}}</div>
+            {{else if (gt this.likesModalUsers.length 0)}}
+              <div class="hb-media-like-details__list">
+                {{#each this.likesModalUsers as |user|}}
+                  <a
+                    class="hb-media-like-details__user trigger-user-card"
+                    href={{this.likeUserProfileUrl user}}
+                    data-user-card={{this.likeUserUsername user}}
+                    title={{this.likeUserUsername user}}
+                    {{on "click" (fn this.handleLikeUserClick user)}}
+                  >
+                    <span class="hb-media-like-details__avatar">
+                      {{#if (this.likeUserAvatarUrl user)}}
+                        <img alt="" src={{this.likeUserAvatarUrl user}} loading="lazy" decoding="async" />
+                      {{else}}
+                        {{icon "user"}}
+                      {{/if}}
+                    </span>
+                    <span class="hb-media-like-details__names">
+                      <span class="hb-media-like-details__displayName">{{this.likeUserDisplayName user}}</span>
+                      <span class="hb-media-like-details__username">@{{this.likeUserUsername user}}</span>
+                    </span>
+                  </a>
+                {{/each}}
+              </div>
+              {{#if this.likesModalLimitedNotice}}
+                <div class="hb-media-like-details__notice">{{this.likesModalLimitedNotice}}</div>
+              {{/if}}
+            {{else}}
+              <div class="hb-media-like-details__state">{{i18n "media_gallery.like_details_empty"}}</div>
             {{/if}}
           </div>
         </div>
