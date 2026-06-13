@@ -1011,6 +1011,7 @@ export default class MediaGalleryPage extends Component {
   @tracked likesModalTotal = 0;
   @tracked likesModalLoading = false;
   @tracked likesModalError = "";
+  @tracked likesModalLoaded = false;
 
   // Delete confirmation modal
   @tracked deleteOpen = false;
@@ -3814,20 +3815,13 @@ export default class MediaGalleryPage extends Component {
   }
 
   likeUserUsername(user) {
-    return this.cleanUsername(user?.username || "unknown");
+    return this.cleanUsername(String(user?.username || user?.displayUsername || "unknown"));
   }
 
-  likeUserProfileUrl(user) {
-    const direct = normalizeSafeLinkUrl(user?.profile_url);
-    if (direct) return direct;
-    return `/u/${this.likeUserUsername(user)}`;
-  }
-
-  likeUserAvatarUrl(user) {
-    const template = user?.avatar_template;
+  likeUserAvatarUrlFromTemplate(template, size = 45) {
     if (!template) return null;
 
-    const url = String(template).replace("{size}", "45");
+    const url = String(template).replace("{size}", String(size));
     if (url.startsWith("//")) {
       const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
       return `${protocol}${url}`;
@@ -3835,16 +3829,66 @@ export default class MediaGalleryPage extends Component {
     return url;
   }
 
-  likeUserDisplayName(user) {
-    return this.likeUserUsername(user);
+  normalizeLikeUserPayload(user) {
+    if (!user || typeof user !== "object") return null;
+
+    const username = this.cleanUsername(String(user.username || user.display_username || user.displayUsername || ""));
+    if (!username) return null;
+
+    const name = normalizeNoticeText(user.name || user.display_name || user.displayName, { maxLength: 120 });
+    const directProfileUrl = normalizeSafeLinkUrl(user.profile_url || user.profileUrl);
+
+    return {
+      id: user.id,
+      username,
+      displayUsername: username,
+      secondaryName: name && name.toLowerCase() !== username.toLowerCase() ? name : "",
+      profileUrl: directProfileUrl || `/u/${username}`,
+      avatarUrl: this.likeUserAvatarUrlFromTemplate(user.avatar_template || user.avatarTemplate),
+      likedAt: user.liked_at || user.likedAt || null,
+    };
   }
 
-  likeUserSecondaryName(user) {
-    const name = normalizeNoticeText(user?.name, { maxLength: 120 });
-    const username = this.likeUserUsername(user);
-    if (!name || name.toLowerCase() === username.toLowerCase()) return "";
+  normalizeLikeUsersResponse(res) {
+    let candidates = [];
+    if (Array.isArray(res?.users)) {
+      candidates = res.users;
+    } else if (Array.isArray(res?.likers)) {
+      candidates = res.likers;
+    } else if (Array.isArray(res?.likes)) {
+      candidates = res.likes;
+    }
 
-    return name;
+    return candidates.map((user) => this.normalizeLikeUserPayload(user)).filter(Boolean);
+  }
+
+  optimisticCurrentLikeUser(item) {
+    if (!item?.liked || !this.currentUser?.username) return null;
+
+    return this.normalizeLikeUserPayload({
+      id: this.currentUser.id,
+      username: this.currentUser.username,
+      name: this.currentUser.name,
+      avatar_template: this.currentUser.avatar_template,
+      profile_url: `/u/${this.cleanUsername(String(this.currentUser.username))}`,
+    });
+  }
+
+  likeDetailsErrorMessage(error) {
+    const response = error?.jqXHR?.responseJSON;
+    const errors = response?.errors;
+
+    if (Array.isArray(errors) && errors.length) {
+      return errors.filter(Boolean).join(", ");
+    }
+
+    return (
+      response?.message ||
+      response?.error ||
+      (typeof errors === "string" ? errors : "") ||
+      error?.message ||
+      I18n.t("media_gallery.like_details_error")
+    );
   }
 
   @action
@@ -4393,6 +4437,14 @@ export default class MediaGalleryPage extends Component {
     return !!(this.likesConfig?.enabled && item?.can_view_likes === true && item?.public_id && count > 0);
   };
 
+  get hasLikesModalUsers() {
+    return Array.isArray(this.likesModalUsers) && this.likesModalUsers.length > 0;
+  }
+
+  get likesModalIsEmpty() {
+    return this.likesModalLoaded && !this.likesModalLoading && !this.likesModalError && !this.hasLikesModalUsers;
+  }
+
   get likesModalLimitedNotice() {
     const shown = this.likesModalUsers?.length || 0;
     const total = parseInt(this.likesModalTotal || 0, 10) || 0;
@@ -4418,19 +4470,27 @@ export default class MediaGalleryPage extends Component {
     this.likesModalUsers = [];
     this.likesModalTotal = parseInt(item.likes_count || 0, 10) || 0;
     this.likesModalLoading = true;
+    this.likesModalLoaded = false;
     this.likesModalError = "";
 
     try {
       const res = await ajax(`/media/${publicId}/likes`, { type: "GET", data: { limit: 50 } });
-      this.likesModalUsers = Array.isArray(res?.users) ? res.users : [];
+      const normalizedUsers = this.normalizeLikeUsersResponse(res);
+      const currentUserFallback = this.optimisticCurrentLikeUser(item);
+
+      if (normalizedUsers.length) {
+        this.likesModalUsers = normalizedUsers;
+      } else if (currentUserFallback) {
+        this.likesModalUsers = [currentUserFallback];
+      } else {
+        this.likesModalUsers = [];
+      }
       this.likesModalTotal = parseInt(res?.total ?? this.likesModalUsers.length, 10) || this.likesModalUsers.length;
     } catch (e) {
-      this.likesModalError =
-        e?.jqXHR?.responseJSON?.message ||
-        e?.jqXHR?.responseJSON?.errors?.join(", ") ||
-        e?.message ||
-        I18n.t("media_gallery.like_details_error");
+      this.likesModalUsers = [];
+      this.likesModalError = this.likeDetailsErrorMessage(e);
     } finally {
+      this.likesModalLoaded = true;
       this.likesModalLoading = false;
     }
   }
@@ -4445,6 +4505,7 @@ export default class MediaGalleryPage extends Component {
     this.likesModalUsers = [];
     this.likesModalTotal = 0;
     this.likesModalError = "";
+    this.likesModalLoaded = false;
   }
 
   // -----------------------
@@ -7768,27 +7829,27 @@ toggleImageFullscreen(e) {
               <div class="hb-media-like-details__state">{{i18n "media_gallery.like_details_loading"}}</div>
             {{else if this.likesModalError}}
               <div class="hb-media-like-details__error">{{this.likesModalError}}</div>
-            {{else if (gt this.likesModalUsers.length 0)}}
+            {{else if this.hasLikesModalUsers}}
               <div class="hb-media-like-details__list">
                 {{#each this.likesModalUsers as |user|}}
                   <a
                     class="hb-media-like-details__user trigger-user-card"
-                    href={{this.likeUserProfileUrl user}}
-                    data-user-card={{this.likeUserUsername user}}
-                    title={{this.likeUserUsername user}}
+                    href={{user.profileUrl}}
+                    data-user-card={{user.username}}
+                    title={{user.username}}
                     {{on "click" (fn this.handleLikeUserClick user)}}
                   >
                     <span class="hb-media-like-details__avatar">
-                      {{#if (this.likeUserAvatarUrl user)}}
-                        <img alt="" src={{this.likeUserAvatarUrl user}} loading="lazy" decoding="async" />
+                      {{#if user.avatarUrl}}
+                        <img alt="" src={{user.avatarUrl}} loading="lazy" decoding="async" />
                       {{else}}
                         {{icon "user"}}
                       {{/if}}
                     </span>
                     <span class="hb-media-like-details__names">
-                      <span class="hb-media-like-details__displayName">@{{this.likeUserDisplayName user}}</span>
-                      {{#if (this.likeUserSecondaryName user)}}
-                        <span class="hb-media-like-details__username">{{this.likeUserSecondaryName user}}</span>
+                      <span class="hb-media-like-details__displayName">@{{user.displayUsername}}</span>
+                      {{#if user.secondaryName}}
+                        <span class="hb-media-like-details__username">{{user.secondaryName}}</span>
                       {{/if}}
                     </span>
                   </a>
@@ -7797,7 +7858,7 @@ toggleImageFullscreen(e) {
               {{#if this.likesModalLimitedNotice}}
                 <div class="hb-media-like-details__notice">{{this.likesModalLimitedNotice}}</div>
               {{/if}}
-            {{else}}
+            {{else if this.likesModalIsEmpty}}
               <div class="hb-media-like-details__state">{{i18n "media_gallery.like_details_empty"}}</div>
             {{/if}}
           </div>
