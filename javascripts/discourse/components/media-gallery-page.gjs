@@ -6934,22 +6934,24 @@ toggleImageFullscreen(e) {
 
           {{#if this.uploaderSuggestionsOpen}}
             <div class="hb-uploader-filter__menu">
-              {{#unless this.uploaderAutocompleteReady}}
-                <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_min_chars"}}</div>
-              {{else if this.uploaderSuggestionsLoading}}
-                <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_loading"}}</div>
-              {{else if (gt this.uploaderSuggestions.length 0)}}
-                {{#each this.uploaderSuggestions as |user|}}
-                  <button
-                    type="button"
-                    class="hb-uploader-filter__option"
-                    {{on "mousedown" (fn this.selectUploaderSuggestion user)}}
-                  >
-                    <span class="hb-uploader-filter__username">{{this.cleanUsername user.username}}</span>
-                  </button>
-                {{/each}}
+              {{#if this.uploaderAutocompleteReady}}
+                {{#if this.uploaderSuggestionsLoading}}
+                  <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_loading"}}</div>
+                {{else if (gt this.uploaderSuggestions.length 0)}}
+                  {{#each this.uploaderSuggestions as |user|}}
+                    <button
+                      type="button"
+                      class="hb-uploader-filter__option"
+                      {{on "mousedown" (fn this.selectUploaderSuggestion user)}}
+                    >
+                      <span class="hb-uploader-filter__username">{{this.cleanUsername user.username}}</span>
+                    </button>
+                  {{/each}}
+                {{else}}
+                  <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_no_matches"}}</div>
+                {{/if}}
               {{else}}
-                <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_no_matches"}}</div>
+                <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_min_chars"}}</div>
               {{/if}}
             </div>
           {{/if}}
