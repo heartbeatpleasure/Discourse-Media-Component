@@ -177,6 +177,8 @@ const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 4000;
 const MAX_TAG_LENGTH = 40;
 const MAX_SEARCH_LENGTH = 200;
+const UPLOADER_SUGGEST_MIN_LENGTH = 2;
+const UPLOADER_SUGGEST_LIMIT = 10;
 const MAX_USERNAME_FILTER_LENGTH = 60;
 const MAX_LIBRARY_NOTICE_TITLE_LENGTH = 160;
 const MAX_LIBRARY_NOTICE_BODY_LENGTH = 600;
@@ -1589,6 +1591,10 @@ export default class MediaGalleryPage extends Component {
     return normalizeUsernameFilter(this.uploader);
   }
 
+  get uploaderAutocompleteReady() {
+    return this.normalizedUploaderFilter.length >= UPLOADER_SUGGEST_MIN_LENGTH;
+  }
+
   get normalizedSortBy() {
     return normalizeSortValue(this.sortBy);
   }
@@ -2588,12 +2594,28 @@ export default class MediaGalleryPage extends Component {
   setUploader(e) {
     this.uploader = normalizeUsernameFilter(e.target.value);
     this.uploaderSuggestionsOpen = true;
+
+    if (!this.uploaderAutocompleteReady) {
+      this._clearUploaderSuggestTimer();
+      this.uploaderSuggestions = [];
+      this.uploaderSuggestionsLoading = false;
+      return;
+    }
+
     this.queueUploaderSuggestions();
   }
 
   @action
   openUploaderSuggestions() {
     this.uploaderSuggestionsOpen = true;
+
+    if (!this.uploaderAutocompleteReady) {
+      this._clearUploaderSuggestTimer();
+      this.uploaderSuggestions = [];
+      this.uploaderSuggestionsLoading = false;
+      return;
+    }
+
     if (!this.uploaderSuggestions.length) {
       this.queueUploaderSuggestions({ immediate: true });
     }
@@ -2633,11 +2655,17 @@ export default class MediaGalleryPage extends Component {
     const seq = ++this._uploaderSuggestSeq;
     const q = this.normalizedUploaderFilter;
 
+    if (q.length < UPLOADER_SUGGEST_MIN_LENGTH) {
+      this.uploaderSuggestions = [];
+      this.uploaderSuggestionsLoading = false;
+      return;
+    }
+
     this.uploaderSuggestionsLoading = true;
     try {
       const res = await ajax("/media/users", {
         type: "GET",
-        data: { q, limit: 8 },
+        data: { q, limit: UPLOADER_SUGGEST_LIMIT },
       });
 
       if (seq !== this._uploaderSuggestSeq || this._destroyed) return;
@@ -6906,7 +6934,9 @@ toggleImageFullscreen(e) {
 
           {{#if this.uploaderSuggestionsOpen}}
             <div class="hb-uploader-filter__menu">
-              {{#if this.uploaderSuggestionsLoading}}
+              {{#unless this.uploaderAutocompleteReady}}
+                <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_min_chars"}}</div>
+              {{else if this.uploaderSuggestionsLoading}}
                 <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_loading"}}</div>
               {{else if (gt this.uploaderSuggestions.length 0)}}
                 {{#each this.uploaderSuggestions as |user|}}
