@@ -177,6 +177,7 @@ const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 4000;
 const MAX_TAG_LENGTH = 40;
 const MAX_SEARCH_LENGTH = 200;
+const MAX_USERNAME_FILTER_LENGTH = 60;
 const MAX_LIBRARY_NOTICE_TITLE_LENGTH = 160;
 const MAX_LIBRARY_NOTICE_BODY_LENGTH = 600;
 const MAX_LIBRARY_NOTICE_LINK_TEXT_LENGTH = 80;
@@ -281,6 +282,15 @@ function normalizeTagValue(value) {
   });
   text = text.replace(/,/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
   return text;
+}
+
+function normalizeUsernameFilter(value) {
+  let text = normalizePlainTextForTyping(value, {
+    maxLength: MAX_USERNAME_FILTER_LENGTH,
+    allowNewlines: false,
+  });
+  text = text.replace(/^@+/, "").trim();
+  return text.slice(0, MAX_USERNAME_FILTER_LENGTH);
 }
 
 function searchTerms(value) {
@@ -903,6 +913,10 @@ export default class MediaGalleryPage extends Component {
 
   // Filters
   @tracked q = "";
+  @tracked uploader = "";
+  @tracked uploaderSuggestions = [];
+  @tracked uploaderSuggestionsOpen = false;
+  @tracked uploaderSuggestionsLoading = false;
   @tracked mediaType = "";
   @tracked gender = "";
   @tracked status = ""; // only for "mine"
@@ -1069,6 +1083,8 @@ export default class MediaGalleryPage extends Component {
 
   _mediaTypeSelectEl = null;
   _genderSelectEl = null;
+  _uploaderSuggestTimer = null;
+  _uploaderSuggestSeq = 0;
 
   // Some endpoints may 500 when receiving a tags parameter. Track per endpoint
   // to avoid repeated failing requests (and noisy console/network errors).
@@ -1275,6 +1291,7 @@ export default class MediaGalleryPage extends Component {
     this._stopPreviewOverlayRotation();
     this._stopPreviewIdleRevokeTimer();
     this._setPreviewBodyClass(false);
+    this._clearUploaderSuggestTimer();
     this._setLikeDetailsBodyClass(false);
   }
 
@@ -1568,6 +1585,10 @@ export default class MediaGalleryPage extends Component {
     return normalizedSearchQuery(this.q);
   }
 
+  get normalizedUploaderFilter() {
+    return normalizeUsernameFilter(this.uploader);
+  }
+
   get normalizedSortBy() {
     return normalizeSortValue(this.sortBy);
   }
@@ -1575,6 +1596,7 @@ export default class MediaGalleryPage extends Component {
   get hasActiveFilters() {
     return !!(
       this.activeSearchQuery ||
+      this.normalizedUploaderFilter ||
       this.mediaType ||
       this.gender ||
       this.status ||
@@ -1622,6 +1644,7 @@ export default class MediaGalleryPage extends Component {
       maxLength: MAX_SEARCH_LENGTH,
       allowNewlines: false,
     });
+    this.uploader = normalizeUsernameFilter(params.get("uploader") || params.get("username"));
     this.mediaType = pickAllowedValue(params.get("media_type"), MEDIA_TYPE_FILTER_VALUES, "");
     this.gender = pickAllowedValue(params.get("gender"), GENDER_FILTER_VALUES, "");
     this.status = this.activeTab === "mine" ? pickAllowedValue(params.get("status"), STATUS_FILTER_VALUES, "") : "";
@@ -1788,6 +1811,8 @@ export default class MediaGalleryPage extends Component {
 
     const q = this.activeSearchQuery;
     if (q) params.set("q", q);
+    const uploader = this.normalizedUploaderFilter;
+    if (uploader) params.set("uploader", uploader);
     if (this.mediaType) params.set("media_type", this.mediaType);
     if (this.gender) params.set("gender", this.gender);
     if (this.activeTab === "mine" && this.status) params.set("status", this.status);
@@ -2316,6 +2341,7 @@ export default class MediaGalleryPage extends Component {
       this.filterTagsOpen = false;
       this.uploadTagsOpen = false;
       this.editTagsOpen = false;
+      this.uploaderSuggestionsOpen = false;
     }
   }
 
@@ -2431,6 +2457,11 @@ export default class MediaGalleryPage extends Component {
         const haystack = `${m.title || ""} ${m.description || ""}`.toLowerCase();
         return terms.every((term) => haystack.includes(term));
       });
+    }
+
+    const uploader = this.normalizedUploaderFilter.toLowerCase();
+    if (uploader) {
+      out = out.filter((m) => String(m?.uploader_username || "").toLowerCase() === uploader);
     }
 
     return out;
@@ -2552,6 +2583,75 @@ export default class MediaGalleryPage extends Component {
   // Filters
   // -----------------------
   @action setQ(e) { this.q = normalizePlainTextForTyping(e.target.value, { maxLength: MAX_SEARCH_LENGTH, allowNewlines: false }); }
+
+  @action
+  setUploader(e) {
+    this.uploader = normalizeUsernameFilter(e.target.value);
+    this.uploaderSuggestionsOpen = true;
+    this.queueUploaderSuggestions();
+  }
+
+  @action
+  openUploaderSuggestions() {
+    this.uploaderSuggestionsOpen = true;
+    if (!this.uploaderSuggestions.length) {
+      this.queueUploaderSuggestions({ immediate: true });
+    }
+  }
+
+  @action
+  selectUploaderSuggestion(user, e) {
+    e?.preventDefault?.();
+    this.uploader = normalizeUsernameFilter(user?.username || user);
+    this.uploaderSuggestionsOpen = false;
+  }
+
+  @action
+  onUploaderKeydown(e) {
+    if (e?.key === "Escape") {
+      this.uploaderSuggestionsOpen = false;
+    }
+  }
+
+  _clearUploaderSuggestTimer() {
+    if (this._uploaderSuggestTimer) {
+      clearTimeout(this._uploaderSuggestTimer);
+      this._uploaderSuggestTimer = null;
+    }
+  }
+
+  queueUploaderSuggestions({ immediate = false } = {}) {
+    this._clearUploaderSuggestTimer();
+    const delay = immediate ? 0 : 180;
+    this._uploaderSuggestTimer = setTimeout(() => {
+      this._uploaderSuggestTimer = null;
+      this.loadUploaderSuggestions();
+    }, delay);
+  }
+
+  async loadUploaderSuggestions() {
+    const seq = ++this._uploaderSuggestSeq;
+    const q = this.normalizedUploaderFilter;
+
+    this.uploaderSuggestionsLoading = true;
+    try {
+      const res = await ajax("/media/users", {
+        type: "GET",
+        data: { q, limit: 8 },
+      });
+
+      if (seq !== this._uploaderSuggestSeq || this._destroyed) return;
+      this.uploaderSuggestions = Array.isArray(res?.users) ? res.users : [];
+    } catch {
+      if (seq !== this._uploaderSuggestSeq || this._destroyed) return;
+      this.uploaderSuggestions = [];
+    } finally {
+      if (seq === this._uploaderSuggestSeq && !this._destroyed) {
+        this.uploaderSuggestionsLoading = false;
+      }
+    }
+  }
+
   @action setMediaType(e) { this.mediaType = pickAllowedValue(e.target.value, MEDIA_TYPE_FILTER_VALUES, ""); }
   @action setGender(e) { this.gender = pickAllowedValue(e.target.value, GENDER_FILTER_VALUES, ""); }
   @action setStatus(e) { this.status = pickAllowedValue(e.target.value, STATUS_FILTER_VALUES, ""); }
@@ -2572,6 +2672,9 @@ export default class MediaGalleryPage extends Component {
     this.noticeMessage = null;
     this.errorMessage = null;
     this.q = "";
+    this.uploader = "";
+    this.uploaderSuggestions = [];
+    this.uploaderSuggestionsOpen = false;
     this.mediaType = "";
     this.gender = "";
     this.tagsSelected = [];
@@ -2590,6 +2693,8 @@ export default class MediaGalleryPage extends Component {
     this.noticeMessage = null;
     this.errorMessage = null;
     this.q = this.activeSearchQuery;
+    this.uploader = this.normalizedUploaderFilter;
+    this.uploaderSuggestionsOpen = false;
     this.sortBy = this.normalizedSortBy;
     this.page = 1;
     this.updateUrlState();
@@ -6403,6 +6508,8 @@ toggleImageFullscreen(e) {
       const tags = uniqStrings(this.tagsSelected || []);
       const q = this.activeSearchQuery;
       if (q) data.q = q;
+      const uploader = this.normalizedUploaderFilter;
+      if (uploader) data.uploader = uploader;
       if (this.mediaType) data.media_type = this.mediaType;
       if (this.gender) data.gender = this.gender;
       data.sort = this.normalizedSortBy;
@@ -6782,6 +6889,40 @@ toggleImageFullscreen(e) {
         <div class="hb-field hb-field--span2">
           <label class="form-label">{{i18n "media_gallery.search_placeholder"}}</label>
           <input type="text" maxlength="200" value={{this.q}} {{on "input" this.setQ}} />
+        </div>
+
+        <div class="hb-field hb-field--span2 hb-uploader-filter" data-hb-ms="uploader">
+          <label class="form-label">{{i18n "media_gallery.uploader_filter_label"}}</label>
+          <input
+            type="text"
+            maxlength="60"
+            value={{this.uploader}}
+            placeholder={{i18n "media_gallery.uploader_filter_placeholder"}}
+            autocomplete="off"
+            {{on "focus" this.openUploaderSuggestions}}
+            {{on "input" this.setUploader}}
+            {{on "keydown" this.onUploaderKeydown}}
+          />
+
+          {{#if this.uploaderSuggestionsOpen}}
+            <div class="hb-uploader-filter__menu">
+              {{#if this.uploaderSuggestionsLoading}}
+                <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_loading"}}</div>
+              {{else if (gt this.uploaderSuggestions.length 0)}}
+                {{#each this.uploaderSuggestions as |user|}}
+                  <button
+                    type="button"
+                    class="hb-uploader-filter__option"
+                    {{on "mousedown" (fn this.selectUploaderSuggestion user)}}
+                  >
+                    <span class="hb-uploader-filter__username">{{this.cleanUsername user.username}}</span>
+                  </button>
+                {{/each}}
+              {{else}}
+                <div class="hb-uploader-filter__empty">{{i18n "media_gallery.uploader_filter_no_matches"}}</div>
+              {{/if}}
+            </div>
+          {{/if}}
         </div>
 
         <div class="hb-field">
