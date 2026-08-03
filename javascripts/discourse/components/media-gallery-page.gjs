@@ -102,6 +102,21 @@ function hlsScriptCandidates(primaryUrl, fallbackUrls) {
   return candidates;
 }
 
+function normalizeHlsScriptIntegrity(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (/[\u0000-\u001F\u007F]/.test(value)) return null;
+
+  const tokens = value.split(/\s+/g).filter(Boolean);
+  if (!tokens.length) return "";
+
+  const valid = tokens.every((token) =>
+    /^(?:sha256|sha384|sha512)-[A-Za-z0-9+/]+={0,2}$/.test(token)
+  );
+
+  return valid ? tokens.join(" ") : null;
+}
+
 function mediaGalleryDebugLog(enabled, ...args) {
   if (!enabled) return;
   try {
@@ -551,30 +566,72 @@ const DEFAULT_HLS_JS_URL = "https://cdn.jsdelivr.net/npm/hls.js@1.5.14/dist/hls.
 const DEFAULT_HLS_JS_ALLOWED_URL_PREFIXES = "https://cdn.jsdelivr.net/npm/hls.js@|https://unpkg.com/hls.js@";
 
 const _loadedScripts = new Map();
-function loadScriptOnce(url) {
+function loadScriptOnce(url, integrity = "") {
   const u = String(url || "").trim();
+  const sri = String(integrity || "").trim();
   if (!u) return Promise.resolve(false);
-  if (_loadedScripts.has(u)) return _loadedScripts.get(u);
+
+  const cacheKey = `${u}\n${sri}`;
+  if (_loadedScripts.has(cacheKey)) return _loadedScripts.get(cacheKey);
 
   const p = new Promise((resolve, reject) => {
     try {
-      if (document.querySelector(`script[src="${u}"]`)) {
+      const existing = Array.from(document.querySelectorAll("script[src]")).find(
+        (script) => script.src === u
+      );
+
+      if (existing) {
+        const existingIntegrity = normalizeHlsScriptIntegrity(existing.integrity);
+        if (sri && existingIntegrity !== sri) {
+          reject(
+            new Error(
+              "An hls.js script from this URL is already present without the configured integrity value. Reload the page after updating the component settings."
+            )
+          );
+          return;
+        }
+
         resolve(true);
         return;
       }
     } catch {
-      // ignore
+      // Ignore lookup failures and continue with a new script element.
     }
 
-    const s = document.createElement("script");
-    s.src = u;
-    s.async = true;
-    s.onload = () => resolve(true);
-    s.onerror = () => reject(new Error(`failed_to_load_script: ${u}`));
-    document.head.appendChild(s);
+    const script = document.createElement("script");
+    script.src = u;
+    script.async = true;
+
+    if (sri) {
+      script.integrity = sri;
+      script.crossOrigin = "anonymous";
+    }
+
+    script.onload = () => resolve(true);
+    script.onerror = () => {
+      try {
+        script.remove();
+      } catch {
+        // ignore cleanup failures
+      }
+      reject(
+        new Error(
+          sri
+            ? "The hls.js script could not be loaded or did not match the configured integrity value."
+            : "The hls.js script could not be loaded."
+        )
+      );
+    };
+
+    document.head.appendChild(script);
   });
 
-  _loadedScripts.set(u, p);
+  _loadedScripts.set(cacheKey, p);
+  p.catch(() => {
+    if (_loadedScripts.get(cacheKey) === p) {
+      _loadedScripts.delete(cacheKey);
+    }
+  });
   return p;
 }
 
@@ -5815,7 +5872,16 @@ toggleImageFullscreen(e) {
     const hlsUrl = this._getThemeSetting("hls_js_url", DEFAULT_HLS_JS_URL);
     const fallbackUrls = this._getThemeSetting("hls_js_fallback_urls", "");
     const allowedPrefixes = this._getThemeSetting("hls_js_allowed_url_prefixes", DEFAULT_HLS_JS_ALLOWED_URL_PREFIXES);
+    const rawIntegrity = this._getThemeSetting("hls_js_integrity", "");
+    const integrity = normalizeHlsScriptIntegrity(rawIntegrity);
     const candidates = hlsScriptCandidates(hlsUrl, fallbackUrls);
+
+    if (integrity === null) {
+      this.errorMessage =
+        "HLS playback is blocked because the configured hls.js integrity value is invalid. Use a sha256-, sha384-, or sha512- Subresource Integrity value, or leave the field empty to disable integrity checking.";
+      mediaGalleryDebugLog(debug, "Invalid hls.js integrity setting");
+      return false;
+    }
 
     if (!candidates.length) {
       this.errorMessage =
@@ -5836,8 +5902,11 @@ toggleImageFullscreen(e) {
       attemptedAllowedCandidate = true;
 
       try {
-        mediaGalleryDebugLog(debug, "Loading hls.js candidate", candidate);
-        await loadScriptOnce(candidate);
+        mediaGalleryDebugLog(debug, "Loading hls.js candidate", {
+          candidate,
+          integrityEnabled: !!integrity,
+        });
+        await loadScriptOnce(candidate, integrity);
       } catch (e) {
         lastLoadError = e;
         mediaGalleryDebugLog(debug, "Failed to load hls.js candidate", candidate, e?.message || e);

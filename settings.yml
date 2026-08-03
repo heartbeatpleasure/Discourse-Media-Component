@@ -34,6 +34,13 @@ hls_js_allowed_url_prefixes:
     en: "Allowed URL prefixes for loading hls.js. Keep this restricted to trusted CDN prefixes. Default allows jsDelivr and unpkg. Leave empty to block external hls.js loading."
     nl: "Toegestane URL-prefixes voor het laden van hls.js. Beperk dit tot vertrouwde CDN-prefixes. Standaard zijn jsDelivr en unpkg toegestaan. Laat leeg om extern laden van hls.js te blokkeren."
 
+hls_js_integrity:
+  default: ""
+  type: string
+  description:
+    en: "Optional Subresource Integrity value for hls.js, for example sha384-.... When set, every primary or fallback script must match this hash and is loaded with anonymous CORS; a mismatch blocks loading. Leave empty to keep the current URL-allowlist-only behavior without an integrity check."
+    nl: "Optionele Subresource Integrity-waarde voor hls.js, bijvoorbeeld sha384-.... Wanneer ingevuld moet ieder primair of fallbackscript met deze hash overeenkomen en wordt het met anonieme CORS geladen; bij een afwijking wordt laden geblokkeerd. Laat leeg om het huidige gedrag met alleen de URL-allowlist en zonder integriteitscontrole te behouden."
+
 hls_js_fallback_urls:
   default: ""
   type: list
