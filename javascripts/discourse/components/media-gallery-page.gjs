@@ -5925,9 +5925,15 @@ toggleImageFullscreen(e) {
     const Hls = window?.Hls;
     if (!Hls || !Hls.isSupported?.()) {
       // No HLS support (and no native support, otherwise we would have returned earlier).
-      this.errorMessage = attemptedAllowedCandidate
-        ? `HLS playback needs hls.js in this browser, but hls.js could not be loaded or is not supported.${lastLoadError?.message ? ` Last load error: ${lastLoadError.message}` : ""}`
-        : "HLS playback script URL is not allowed by the component allowlist. Ask an administrator to update hls_js_url or hls_js_allowed_url_prefixes.";
+      if (attemptedAllowedCandidate && integrity && lastLoadError) {
+        this.errorMessage =
+          "This video cannot be played right now. The secure video player could not be loaded because its Subresource Integrity (SRI) check failed. Please refresh the page and try again. If the problem continues, contact the administrators and include a screenshot of this message.";
+      } else if (attemptedAllowedCandidate) {
+        this.errorMessage = `HLS playback needs hls.js in this browser, but hls.js could not be loaded or is not supported.${lastLoadError?.message ? ` Last load error: ${lastLoadError.message}` : ""}`;
+      } else {
+        this.errorMessage =
+          "HLS playback script URL is not allowed by the component allowlist. Ask an administrator to update hls_js_url or hls_js_allowed_url_prefixes.";
+      }
       return false;
     }
 
