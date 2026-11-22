@@ -50,8 +50,7 @@ export default class MediaUserUploadCount extends Component {
   @service currentUser;
   @tracked count = null;
 
-  _observer = null;
-  _visible = false;
+  _mounted = false;
   _requestedUsername = null;
   _sequence = 0;
 
@@ -64,40 +63,22 @@ export default class MediaUserUploadCount extends Component {
   }
 
   get hasCount() {
-    return this.count !== null;
+    return Number.isSafeInteger(this.count) && this.count > 0;
   }
 
   @action
-  onInsert(element) {
-    // Directories may contain many user cards: only fetch counts for cards
-    // which are actually on screen. Older browsers fall back to eager loading.
-    if (!this.currentUser || !this.username) {
-      return;
-    }
-    if (typeof IntersectionObserver !== "function") {
-      this._visible = true;
-      this.load();
-      return;
-    }
-    this._observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) {
-          return;
-        }
-        this._visible = true;
-        this._observer?.disconnect();
-        this._observer = null;
-        this.load();
-      },
-      { rootMargin: "100px" }
-    );
-    this._observer.observe(element);
+  onInsert() {
+    // An initially hidden count cannot trigger IntersectionObserver. The card
+    // only renders when opened, so request its count directly on insertion.
+    // This also works for profiles; the shared cache prevents duplicate calls.
+    this._mounted = true;
+    this.load();
   }
 
   @action
   load() {
     const username = this.username;
-    if (!this._visible || !this.currentUser || !username) {
+    if (!this._mounted || !this.currentUser || !username) {
       this._requestedUsername = null;
       this.count = null;
       ++this._sequence;
@@ -128,9 +109,8 @@ export default class MediaUserUploadCount extends Component {
 
   @action
   onDestroy() {
+    this._mounted = false;
     this._sequence++;
-    this._observer?.disconnect();
-    this._observer = null;
   }
 
   <template>
