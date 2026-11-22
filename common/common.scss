@@ -2573,3 +2573,27 @@ body.hb-media-like-details-open {
     }
   }
 }
+
+/* Upload count in the native user-card metadata and user-profile outlets.
+   Match surrounding text; do not affect third-party card/profile elements. */
+.hb-media-user-upload-count {
+  &:not(.hb-media-user-upload-count--visible) {
+    display: none;
+  }
+
+  &--card {
+    display: inline-block;
+    white-space: nowrap;
+  }
+
+  &__link {
+    color: inherit;
+    text-decoration: none;
+
+    &:hover,
+    &:focus-visible {
+      color: inherit;
+      text-decoration: underline;
+    }
+  }
+}
