@@ -7,6 +7,7 @@ import { service } from "@ember/service";
 import { concat, fn } from "@ember/helper";
 import { on } from "@ember/modifier";
 import didInsert from "@ember/render-modifiers/modifiers/did-insert";
+import didUpdate from "@ember/render-modifiers/modifiers/did-update";
 import icon from "discourse/helpers/d-icon";
 import { i18n } from "discourse-i18n";
 import { and, eq, gt, not, or } from "truth-helpers";
@@ -1684,6 +1685,27 @@ export default class MediaGalleryPage extends Component {
     return I18n.t("media_gallery.no_results");
   }
 
+  @action
+  onRouteUploaderChange() {
+    // The route component is reused for query-param-only transitions. Apply
+    // the new uploader instead of leaving the previous (unfiltered) results.
+    const uploader = normalizeUsernameFilter(this.args.routeUploader);
+    if (uploader === this.normalizedUploaderFilter) return;
+
+    // A user-card link contains only an uploader. Restore the destination
+    // URL state so previous search terms, tabs and tags do not stay active.
+    this.restoreStateFromUrl();
+    this.uploader = uploader;
+    this.uploaderSuggestions = [];
+    this.uploaderSuggestionsOpen = false;
+    this._clearUploaderSuggestTimer();
+
+    // Initial loading will use the updated filter itself.
+    if (this.mediaConfigLoaded && !this.viewAccessDenied) {
+      this.refresh();
+    }
+  }
+
   restoreStateFromUrl() {
     if (typeof window === "undefined") return;
 
@@ -1707,7 +1729,11 @@ export default class MediaGalleryPage extends Component {
       maxLength: MAX_SEARCH_LENGTH,
       allowNewlines: false,
     });
-    this.uploader = normalizeUsernameFilter(params.get("uploader") || params.get("username"));
+    // The controller's registered query param also survives SPA navigation.
+    // Keep the existing URL parser as a fallback for direct links/aliases.
+    this.uploader = normalizeUsernameFilter(
+      params.get("uploader") || params.get("username") || this.args.routeUploader
+    );
     this.mediaType = pickAllowedValue(params.get("media_type"), MEDIA_TYPE_FILTER_VALUES, "");
     this.gender = pickAllowedValue(params.get("gender"), GENDER_FILTER_VALUES, "");
     this.status = this.activeTab === "mine" ? pickAllowedValue(params.get("status"), STATUS_FILTER_VALUES, "") : "";
@@ -6662,7 +6688,7 @@ toggleImageFullscreen(e) {
   }
 
   <template>
-  <section class="hb-media-library-page">
+  <section class="hb-media-library-page" {{didUpdate this.onRouteUploaderChange @routeUploader}}>
     <div class="hb-media-library-header">
       <h1>{{i18n "media_gallery.title"}}</h1>
 
